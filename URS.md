@@ -1,6 +1,9 @@
 # The Fridge List — User Requirement Statement
 
-**Status:** Draft v0.1, captured from a stakeholder interview on 2026-09-13.
+**Status:** Draft v0.2, captured from a stakeholder interview on 2026-09-13;
+§10 updated 2026-09-13 to record which open questions have since been
+answered. The body of this document is unchanged — it remains the
+household's statement of need, in their language.
 
 This document describes what the system must do, for a family of five who
 plan meals, shop weekly (and sometimes mid-week), and split the physical
@@ -209,16 +212,49 @@ to prevent.
 
 ## 10. Open questions
 
-- [ ] Should a household's "already have this as surplus" decision on
+- [x] Should a household's "already have this as surplus" decision on
       a carried-over ingredient be remembered, or asked fresh each
       time it recurs?
+      **Answered:** neither. The per-ingredient decision was replaced by a
+      standing "check before buying" reminder section, so there is no
+      decision to remember — dismissing an item affects only the current
+      shop. See SRS FR-MENU-7.
 - [ ] Any appetite for basic spend tracking in a later phase?
-- [ ] Does recipe edit history/undo matter, given edits are rare and
+      *Still open. Out of scope for this rebuild.*
+- [x] Does recipe edit history/undo matter, given edits are rare and
       made in the moment while cooking — or is last-save-wins fine?
-- [ ] Is there a requirement to export or print a shopping list, or is
+      **Answered:** last-save-wins is fine. Edits are rare and made by
+      whoever is cooking. See ARCHITECTURE §5.5.
+- [x] Is there a requirement to export or print a shopping list, or is
       on-device viewing always sufficient?
-- [ ] Any requirement for accounts/login beyond whatever the sync
+      **Answered:** printing is wanted — the list gets pinned to the
+      fridge door. See ARCHITECTURE §10.2.
+- [x] Any requirement for accounts/login beyond whatever the sync
       backend itself needs?
+      **Answered:** no. One shared login for the storage backend, plus an
+      anonymous per-device identifier not tied to it. No application
+      accounts, no roles. See ARCHITECTURE §3.3.
 - [ ] Confirm: one extra week of carry-over for an uncooked menu item,
       then a mandatory manual decision — is one week definitely right,
       or does it depend on the recipe?
+      *Still open. A uniform one week is assumed in SRS FR-MENU-5 and
+      should be confirmed against a few months of real use.*
+
+### 10.1 Questions this exercise added
+
+Raised while designing against the requirements above, and recorded here
+because they are household decisions rather than technical ones:
+
+- [ ] Some ingredients should never reach a shopping list — `water` is
+      in the ingredient master list. Is a "never buy this" marking
+      wanted, or should such entries simply be removed?
+- [ ] Some recipe lines have no quantity and read as "to taste" or "to
+      serve" (lettuce, cucumber). Should the system understand a
+      quantity-less ingredient that never reaches the shopping list?
+- [ ] "Mint" and "Tahini" each name two genuinely different things in
+      the existing data — fresh versus dried mint, bought in different
+      parts of the shop. Recipes referring to them are currently
+      ambiguous. Disambiguating means deciding, recipe by recipe, which
+      was meant. See `data/DATA-REVIEW.md`.
+- [ ] If a shop is started against the wrong menu, there is currently no
+      way to unlock or abandon it. Is one wanted?

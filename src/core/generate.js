@@ -44,6 +44,10 @@ export function generate(library, { events, shopId, waitList = [], dismissed = n
     const recipe = recipes.get(sel.recipeId);
     if (!recipe) { problems.push({ kind: 'unknown-recipe', recipeId: sel.recipeId }); return []; }
     return recipe.lines.map((l) => {
+      // "Serve with lettuce" — a garnish with no amount. It belongs in the
+      // recipe, but a zero-quantity shopping line means nothing to anyone
+      // standing in a shop, so it never reaches the list (A6).
+      if (l.garnish || l.quantity === 0) return null;
       const ing = ingredients.get(l.ingredientId);
       if (!ing) { problems.push({ kind: 'unknown-ingredient', ingredientId: l.ingredientId }); return null; }
       const scaled = scaleForServings(l.quantity, sel.servings || recipe.servings, recipe.servings);

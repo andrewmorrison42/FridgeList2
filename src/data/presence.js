@@ -81,14 +81,19 @@ export function createPresence({ storage, deviceId, nickname, now = () => Date.n
 export function staleness(syncStatus, roster) {
   const others = roster.filter((r) => !r.isSelf);
   const selfAge = syncStatus.ageMs;
-  const selfStale = selfAge === null || selfAge > STALE_MS || syncStatus.unsent > 0;
+  // Unsent *shop* events mean this device is holding ticks nobody else can
+  // see, which is exactly what staleness is for. Unsent library events —
+  // a bulk import, or a recipe edited at the table — are not urgent (§7.3) and
+  // must not make a working list look broken.
+  const unsentUrgent = syncStatus.unsentShop ?? syncStatus.unsent;
+  const selfStale = selfAge === null || selfAge > STALE_MS || unsentUrgent > 0;
   const staleOthers = others.filter((r) => r.stale);
 
   return {
     selfStale,
     selfText:
       selfAge === null ? 'not synced yet'
-      : syncStatus.unsent > 0 ? `${syncStatus.unsent} unsent · last synced ${ago(selfAge)}`
+      : unsentUrgent > 0 ? `${unsentUrgent} unsent · last synced ${ago(selfAge)}`
       : `synced ${ago(selfAge)}`,
     others: others.map((r) => ({ ...r, text: `${r.nickname} · ${ago(r.ageMs)}` })),
     warn: selfStale || staleOthers.length > 0,

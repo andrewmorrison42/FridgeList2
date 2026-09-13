@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f4f">
+<title>The Fridge List</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="src/ui/styles.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+  import { mount } from './src/ui/main.js';
+  import { createMemoryStorage } from './src/data/storage.js';
+
+  // Backend selection lives here so the rest of the app never knows which one
+  // it has (§15.2). OneDrive is wired in once a token provider is configured;
+  // until then the app runs entirely locally, which is also how it degrades if
+  // the backend is unreachable.
+  const storage = createMemoryStorage();
+  const app = await mount(document.getElementById('app'), { storage });
+  window.app = app;
+
+  // First run on this device: load the imported library. Afterwards it is in
+  // local state like everything else, and arrives on other devices by sync.
+  if (app.library.recipes.size === 0) {
+    try {
+      const res = await fetch('data/library.json');
+      if (res.ok) {
+        const json = await res.json();
+        await app.loadLibrary(json);
+        // Push it before the first render settles. Otherwise the 1,090 library
+        // events sit in the upload queue and the header reads "1093 unsent ·
+        // your list may be out of date" — which is true of the library and
+        // false of the shopping list, and reads to a user as sync being broken
+        // on first open.
+        await app.refresh();
+      }
+    } catch { /* the app runs without a library; it just has nothing to plan */ }
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

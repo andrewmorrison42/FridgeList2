@@ -1,0 +1,147 @@
+/* Phones first: a tablet is secondary and there is no desktop requirement.
+   Tap targets are sized for one hand on a trolley. */
+
+:root {
+  --bg: #fbfaf7;
+  --fg: #23241f;
+  --muted: #6b6d64;
+  --line: #e0ded6;
+  --accent: #2f6f4f;
+  --warn: #9a5b1c;
+  --warn-bg: #fdf3e6;
+  --done: #9a9c92;
+  --tap: 44px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171a; --fg: #e9e8e3; --muted: #9a9c94; --line: #2e3036;
+    --accent: #6db98d; --warn: #e0a35e; --warn-bg: #2c2317; --done: #61635c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: calc(60px + env(safe-area-inset-bottom));
+}
+
+main { padding: 12px 16px 24px; max-width: 760px; margin: 0 auto; }
+h1 { font-size: 1.25rem; margin: 8px 0 4px; }
+h2 { font-size: 1rem; margin: 20px 0 4px; letter-spacing: .02em; }
+h3 { font-size: .8rem; margin: 12px 0 2px; color: var(--muted); font-weight: 600;
+     text-transform: uppercase; letter-spacing: .06em; }
+p { margin: 4px 0; }
+ul, ol { margin: 4px 0; padding-left: 0; list-style: none; }
+ol { padding-left: 20px; list-style: decimal; }
+small { color: var(--muted); }
+
+/* --- status header ------------------------------------------------------ */
+
+.status {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: max(8px, env(safe-area-inset-top)) 16px 8px;
+}
+.status.warn { background: var(--warn-bg); }
+.status-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.phase { font-weight: 650; }
+.sync { color: var(--muted); font-size: .82rem; }
+.sync.stale { color: var(--warn); font-weight: 600; }
+.roster { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; }
+.who { font-size: .78rem; color: var(--muted); }
+.who.stale { color: var(--warn); font-weight: 600; }
+.warn-text { color: var(--warn); font-size: .82rem; margin-top: 4px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* --- controls ----------------------------------------------------------- */
+
+button {
+  min-height: var(--tap); padding: 0 14px;
+  font: inherit; font-size: .9rem;
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 10px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.ghost { border: none; color: var(--muted); font-size: .82rem; min-height: 36px; padding: 0 8px; }
+button.link { border: none; text-align: left; padding: 0; min-height: 36px; }
+button:disabled { opacity: .4; }
+
+input[type="search"] {
+  width: 100%; min-height: var(--tap); padding: 0 12px; margin: 8px 0;
+  font: inherit; background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+input[type="checkbox"] { width: 26px; height: 26px; accent-color: var(--accent); flex: none; }
+
+/* --- lists -------------------------------------------------------------- */
+
+li { display: flex; align-items: center; gap: 10px; padding: 4px 0;
+     border-bottom: 1px solid var(--line); min-height: var(--tap); }
+li:last-child { border-bottom: none; }
+.grow { flex: 1 1 auto; min-width: 0; }
+label { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; cursor: pointer; }
+.name { flex: 1 1 auto; }
+.qty { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .88rem; }
+li.done .name { text-decoration: line-through; color: var(--done); }
+li.done .qty { color: var(--done); }
+.pref { font-size: .75rem; color: var(--accent); }
+.count { color: var(--muted); font-size: .88rem; }
+.hint { color: var(--muted); font-size: .84rem; }
+.empty { color: var(--muted); padding: 16px 0; }
+.since { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+.servings { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.group { margin-top: 16px; }
+.aisle { margin-left: 2px; }
+
+/* Carried over — a prompt, not a gate. Visually distinct so it reads as a
+   reminder rather than as part of the list you are working. */
+.carry { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: 12px 0; }
+.carry h2 { margin-top: 4px; }
+
+.sel .status { font-size: .75rem; color: var(--muted); margin-left: 8px; }
+.sel.carried .status { color: var(--warn); }
+.sel.flagged { background: var(--warn-bg); }
+.sel.flagged .status { color: var(--warn); font-weight: 600; }
+.nudge { display: block; font-size: .75rem; color: var(--warn); }
+
+.refusal { border: 1px solid var(--warn); background: var(--warn-bg);
+           border-radius: 12px; padding: 12px; }
+.close-report .ok { color: var(--accent); font-weight: 600; }
+.problems { color: var(--warn); }
+
+/* --- bottom navigation -------------------------------------------------- */
+
+nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
+  display: flex; background: var(--bg); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+nav button { flex: 1; border: none; border-radius: 0; min-height: 56px; color: var(--muted); }
+nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 0 var(--accent); }
+
+/* --- print: the list goes on the fridge door (§10.2) -------------------- */
+
+@media print {
+  :root { --bg: #fff; --fg: #000; --muted: #444; --line: #bbb; }
+  .status, nav, button, input, .hint, .problems { display: none !important; }
+  body { padding: 0; font-size: 11pt; }
+  main { max-width: none; padding: 0; }
+  h1 { font-size: 14pt; }
+  h2 { font-size: 11pt; border-bottom: 1px solid var(--line); margin-top: 12pt; }
+  h3 { font-size: 9pt; margin-top: 6pt; }
+  li { min-height: 0; padding: 1pt 0; border-bottom: none; break-inside: avoid; }
+  /* A tick box you can use with a pen, since this copy is on the door. */
+  label::before { content: "☐"; margin-right: 6pt; }
+  li.done label::before { content: "☑"; }
+  input[type="checkbox"] { display: none; }
+  .carry { border: 1px solid var(--line); }
+}

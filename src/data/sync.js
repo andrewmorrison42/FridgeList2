@@ -138,6 +138,9 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
       deviceId,
       phase,
       unsent: unsent.length,
+      // Separated because they mean different things to a person: ticks not yet
+      // shared are urgent, a recipe edit is not.
+      unsentShop: unsent.filter((e) => pathFor(e, deviceId).startsWith('shops/')).length,
       lastPullAt,
       lastPushAt,
       lastError,

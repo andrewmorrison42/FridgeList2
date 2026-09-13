@@ -20,6 +20,11 @@ const PERMITTED = {
   'line.done':       ['open'],            // FR-LIST-5
   'waitlist.item':   ['draft', 'open'],   // additions only while open — see below
   'carryover.dismissed': ['draft', 'open'],
+  // Any user may edit any recipe at any time (FR-REC-2, absolute). An open
+  // shop is unaffected because it holds its own resolved lines (§6), so
+  // whoever is cooking cannot alter a list someone is shopping from.
+  'recipe.upsert':     ['draft', 'open', 'closed'],
+  'ingredient.upsert': ['draft', 'open', 'closed'],
   'shop.locked':     ['draft'],
   'shop.closed':     ['open'],
 };

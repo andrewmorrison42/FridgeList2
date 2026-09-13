@@ -196,3 +196,22 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
     expect(grouped.at(-1).category).toBe('Cold');
   });
 });
+
+describe('garnish lines (A6)', () => {
+  it('a zero-quantity "to serve" line never reaches the shopping list', async () => {
+    const { generate } = await import('../src/core/generate.js');
+    const { createDevice } = await import('../src/core/events.js');
+    const lettuce = { id: 'lettuce', name: 'Lettuce', shoppingUnit: 'qty', category: 'Fruit and Vegetables', aisle: 'Vegetables' };
+    const lib = {
+      ingredients: new Map([['lettuce', lettuce], ['flour', flour]]),
+      recipes: new Map([['tacos', { id: 'tacos', name: 'Tacos', servings: 4, lines: [
+        { ingredientId: 'flour', quantity: 1, cookingUnit: 'cup' },
+        { ingredientId: 'lettuce', quantity: 0, garnish: true },
+      ] }]]),
+    };
+    const d = createDevice('g');
+    const events = [d.emit('menu.selection', { recipeId: 'tacos', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
+    const { lines } = generate(lib, { events, shopId: 'shop-0001' });
+    expect(lines.map((l) => l.ingredientId)).toEqual(['flour']);
+  });
+});

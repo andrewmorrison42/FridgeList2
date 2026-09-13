@@ -31,6 +31,8 @@ export function keyOf(event) {
     case 'menu.carried':   return `menu:${p.recipeId}:carried:${p.shopId}`;
     case 'waitlist.item':  return `waitlist:${p.itemId}:present`;
     case 'carryover.dismissed': return `carryover:${p.shopId}:${p.ingredientId}`;
+    case 'recipe.upsert':     return `recipe:${p.recipeId}`;
+    case 'ingredient.upsert': return `ingredient:${p.ingredientId}`;
     case 'shop.locked':    return `shop:${p.shopId}:locked`;
     case 'shop.closed':    return `shop:${p.shopId}:closed`;
     default: throw new Error(`unkeyed event type: ${event.type}`);
@@ -47,6 +49,8 @@ const FIELD = {
   'menu.carried': 'carried',
   'waitlist.item': 'present',
   'carryover.dismissed': 'dismissed',
+  'recipe.upsert': 'recipe',
+  'ingredient.upsert': 'ingredient',
   'shop.locked': 'locked',
   'shop.closed': 'closed',
 };
@@ -56,6 +60,15 @@ const FIELD = {
 // close are all facts that someone asserted, and a concurrent event — made by
 // someone who could not see that assertion — must not erase it. §5.4, §5.5.
 const TRUE_WINS = new Set(Object.keys(FIELD));
+
+// Library edits are the one exception: last-save-wins, deterministically
+// tie-broken. Edits are rare and made in the moment by whoever is cooking, and
+// the failure mode is a field value someone can retype — not a vanished tick.
+// This is also the one place where `ts` legitimately decides an outcome, which
+// is why test/harness.js says a last-save-wins field must be projected out of
+// the invariance comparison rather than the harness being loosened. §5.5, §14.1.
+TRUE_WINS.delete('recipe.upsert');
+TRUE_WINS.delete('ingredient.upsert');
 
 // ---------------------------------------------------------------------------
 // Resolution

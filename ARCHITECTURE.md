@@ -899,15 +899,24 @@ export pipeline. Confirmed wanted in Round 4.
       events.js         event construction, version vectors, causality
       merge.js          the resolution rules (§5.4, §5.5)
       store.js          derived state + subscriptions (§11.1, FR-SYNC-7)
+      shop.js           the shop chain and phase permissions (§8.1)
+      library.js        recipes, ingredients, cook history (§9, FR-HIST-2)
       generate.js       shopping list generation (§10)
       carryover.js      status transitions (§9.1)
       units.js          conversion (FR-ING-1)
     data/
-      store.js          IndexedDB: events, derived state, upload queue
-      onedrive.js       the storage interface (§15.2)
+      persist.js        IndexedDB: the full local replica (§7.1)
+      storage.js        the five-function storage interface (§15.2)
+      onedrive.js       that interface, over Graph (§3.3)
       sync.js           polling, delta, upload queue, compaction
       presence.js       heartbeats, roster, staleness
-    ui/                 views; read derived state, emit events
+    ui/
+      main.js           mount and router; subscribes views to the store
+      app.js            wiring and every action; owns the side effects
+      dom.js            h() and bind() — no framework (§13)
+      views.js          plan, list, wait list, recipes
+      status.js         staleness, roster, phase actions, close report
+      styles.css        phone-first, with the print sheet of §10.2
   tools/
     import.js           one-off migration (§12) — Node, run once
   test/

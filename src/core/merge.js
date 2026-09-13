@@ -24,6 +24,11 @@ export function keyOf(event) {
     case 'line.suppressed':return `${lineKey(p)}:suppressed`;
     case 'menu.selection': return `menu:${p.recipeId}:present`;
     case 'menu.cooked':    return `menu:${p.recipeId}:cooked`;
+    // One register per (selection, shop) rather than one counter per selection.
+    // Two devices computing the same transition assert the same fact, and set
+    // union is idempotent where an increment would reach two and flag the
+    // entry a week early. §5.5, §9.1.
+    case 'menu.carried':   return `menu:${p.recipeId}:carried:${p.shopId}`;
     case 'waitlist.item':  return `waitlist:${p.itemId}:present`;
     case 'carryover.dismissed': return `carryover:${p.shopId}:${p.ingredientId}`;
     case 'shop.locked':    return `shop:${p.shopId}:locked`;
@@ -39,6 +44,7 @@ const FIELD = {
   'line.suppressed': 'suppressed',
   'menu.selection': 'present',
   'menu.cooked': 'cooked',
+  'menu.carried': 'carried',
   'waitlist.item': 'present',
   'carryover.dismissed': 'dismissed',
   'shop.locked': 'locked',

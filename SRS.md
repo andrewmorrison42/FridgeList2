@@ -1,6 +1,11 @@
 # The Fridge List — Software Requirements Specification
 
-**Status:** Draft v0.2. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+**Status:** Draft v0.3. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+
+**Changes in v0.3 (2026-09-13):** adds **FR-LIST-7** (buying a Wait List item
+fulfils it) and **FR-SHOP-4** (explicit shop completion, reachable from
+wherever an open shop blocks planning). Both arose from an adversarial review
+of the shop-closing flow.
 
 **Changes in v0.2 (2026-09-13):** adds **FR-SHOP-3 (Menu Lock)** — the
 menu is locked for the duration of a shop — and amends FR-MENU-1,
@@ -224,6 +229,14 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
   alphabetically and not by insertion order, so that people covering
   different physical areas of a shop can each see a coherent subset.
   *(URS §4.2, §8, §9)*
+- **FR-LIST-7.** A shopping-list line that originated from a Wait List
+  item and is **done** when the shop finishes shall fulfil that Wait List
+  item, which is then removed from the Wait List. *(New in v0.3.
+  FR-LIST-4 already covers the case where such a line is *removed* during
+  the pantry check; this covers the ordinary case where the item was
+  simply bought. Without it, a Wait List item survives being purchased
+  and reappears on every subsequent shop — see FR-WAIT-2, which this
+  requirement completes rather than contradicts.)*
 
 ### 5.7 During a shop
 
@@ -259,6 +272,18 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
   operation that could destroy a tick during the only window in which
   ticks exist — see FR-SYNC-1, which this requirement exists to protect.
   It supersedes the mid-shop clauses of FR-MENU-1 and FR-SHOP-1.)*
+- **FR-SHOP-4 (Explicit completion).** A shop shall end only by an
+  explicit user action declaring it complete; the system shall never end
+  a shop on its own (no timeout, no inference from list state). Because
+  FR-SHOP-3 locks the menu for the duration of a shop, an unfinished shop
+  prevents the household from planning the next one — therefore, wherever
+  the system declines an action because a shop is still open, it shall
+  **name the open shop as the cause and offer the completion action from
+  that same place**. It shall not merely refuse. *(New in v0.3. The first
+  sentence reflects existing household practice. The second exists
+  because FR-SHOP-3 introduced the possibility of being locked out of
+  planning by a shop nobody remembered to finish; the failure is
+  acceptable only while its remedy is immediately to hand.)*
 
 ### 5.8 Cross-device sync and reconciliation
 
@@ -350,8 +375,8 @@ statements rather than behaviour to translate:
 | §3 Core concepts | FR-ING-*, FR-REC-1, FR-STA-*, FR-MENU-*, FR-WAIT-*, FR-LIST-*, FR-HIST-* |
 | §4.1 Between shops | FR-WAIT-1 |
 | §4.2 Starting a shop | FR-MENU-1, FR-STA-1, FR-LIST-1–3, FR-LIST-6, FR-ING-2 |
-| §4.3 During the shop | FR-SHOP-1, FR-SHOP-3, FR-SYNC-2–4 |
-| §4.4 After the shop | FR-MENU-2, FR-WAIT-1, FR-HIST-1 |
+| §4.3 During the shop | FR-SHOP-1, FR-SHOP-3, FR-SHOP-4, FR-SYNC-2–4 |
+| §4.4 After the shop | FR-MENU-2, FR-WAIT-1, FR-HIST-1, FR-LIST-7, FR-SHOP-4 |
 | §4.5 Carry-over | FR-MENU-3–7 |
 | §5 Data requirements | §2 Definitions, FR-ING-1–3, FR-HIST-1 |
 | §6 Sync & concurrency | FR-SYNC-1–6, FR-SHOP-2, FR-SHOP-3 |

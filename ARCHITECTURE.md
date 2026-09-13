@@ -161,11 +161,22 @@ database, no scheduled job and nothing to keep alive.
 
 ### 3.3 Authentication
 
-A single shared Microsoft account, signed in on each device via MSAL.js
-(authorisation code flow with PKCE — the only flow appropriate for a public
-client with no secret). Scope: `Files.ReadWrite` limited to the application's
-folder path. Tokens are held per-device by MSAL; refresh is silent, so in
-practice nobody signs in twice.
+A single shared Microsoft account, signed in on each device using the
+authorisation code flow with PKCE — the only flow appropriate for a public
+client with no secret. Scope: `Files.ReadWrite`, `offline_access`, `User.Read`.
+Refresh is silent, so in practice nobody signs in twice.
+
+Implemented directly in `src/data/auth.js` rather than with MSAL, which an
+earlier draft of this document specified. The flow is about seventy lines of a
+well-specified standard, and doing it here keeps the "no runtime dependencies"
+rule of §13 genuinely true rather than nearly true — there is no CDN in the
+critical path of signing in, and nothing to rot. The client id is public by
+design; PKCE is what makes that safe, since an intercepted code is useless
+without a verifier that never leaves the device.
+
+The Azure app registration must use the **Single-page application** redirect
+platform. That is what enables CORS on the token endpoint and requires PKCE; the
+"Web" platform expects a client secret and will not work from a static page.
 
 There are no application accounts, no roles and no permissions — NFR-1 and
 URS §7 make this absolute. Anyone holding the shared login can do everything.
@@ -908,12 +919,14 @@ export pipeline. Confirmed wanted in Round 4.
       persist.js        IndexedDB: the full local replica (§7.1)
       storage.js        the five-function storage interface (§15.2)
       onedrive.js       that interface, over Graph (§3.3)
+      auth.js           Microsoft sign-in, PKCE, no dependency (§3.3)
       sync.js           polling, delta, upload queue, compaction
       presence.js       heartbeats, roster, staleness
     ui/
       main.js           mount and router; subscribes views to the store
       app.js            wiring and every action; owns the side effects
       dom.js            h() and bind() — no framework (§13)
+      connect.js        Setup: device name, OneDrive connection (§3.3)
       views.js          plan, list, wait list, recipes
       status.js         staleness, roster, phase actions, close report
       styles.css        phone-first, with the print sheet of §10.2
@@ -1023,9 +1036,10 @@ instead. That is a discipline, and it is cheaper to sustain than a toolchain.
 to rot. If they break in 2029, the app is unaffected and the invariants can be
 re-verified with whatever exists then.
 
-**Two external runtime pieces**, both unavoidable and both pinned:
-- `@azure/msal-browser` for OAuth (writing PKCE by hand would be worse).
-- Microsoft Graph, called with `fetch`. No SDK.
+**Runtime dependencies: none.** Microsoft Graph is called with `fetch`, and
+sign-in is implemented in `src/data/auth.js` (§3.3). The only npm packages in
+the repository are `vitest` and `fast-check`, which are dev-only and may rot
+without affecting the app.
 
 ---
 

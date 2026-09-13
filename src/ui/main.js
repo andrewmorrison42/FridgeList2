@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
+import { connectView } from './connect.js';
 import { createMemoryStorage } from '../data/storage.js';
 
 const TABS = [
@@ -12,15 +13,36 @@ const TABS = [
   ['plan', 'Plan', planView],
   ['wait', 'Wait', waitListView],
   ['recipes', 'Recipes', recipesView],
+  ['settings', 'Setup', connectView],
 ];
 
-export async function mount(root, { storage = createMemoryStorage() } = {}) {
+/** First run, or an explicit reload: bring in the imported library (§12). */
+export async function loadLibraryInto(app) {
+  try {
+    const res = await fetch('data/library.json');
+    if (!res.ok) return false;
+    await app.loadLibrary(await res.json());
+    await app.refresh();
+    return true;
+  } catch {
+    return false;    // the app runs without a library; it just has nothing to plan
+  }
+}
+
+export async function mount(root, { storage } = {}) {
   const app = await createApp({ storage });
   app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false };
 
   const onAction = async (action, ...args) => {
     switch (action) {
-      case 'tab':        app.ui.tab = args[0]; location.hash = args[0]; break;
+      case 'tab':
+        // Leaving for another tab abandons the close confirmation. Otherwise
+        // the confirmation shadows every screen and the only way out is to
+        // answer it, which is not what tapping "Recipes" means.
+        app.ui.confirmingClose = false;
+        app.ui.tab = args[0];
+        location.hash = args[0];
+        break;
       case 'search':     app.ui.search = args[0]; break;
       case 'waitSearch': app.ui.waitSearch = args[0]; break;
       case 'recipeSearch': app.ui.recipeSearch = args[0]; break;
@@ -47,6 +69,16 @@ export async function mount(root, { storage = createMemoryStorage() } = {}) {
         await app.closeShop();
         break;
       case 'cancelClose': app.ui.confirmingClose = false; break;
+      case 'nickname':   app.setNickname(args[0]); break;
+      case 'clientId':   app.setConfig('clientId', args[0]); break;
+      case 'folder':     app.setConfig('folder', args[0]); break;
+      case 'signIn':
+        try { await app.connect(); }
+        catch (err) { app.config.authError = err.message; }
+        break;
+      case 'signOut':    app.disconnect(); location.reload(); break;
+      case 'syncNow':    await app.refresh(); break;
+      case 'reloadLibrary': await loadLibraryInto(app); break;
     }
     render();
   };

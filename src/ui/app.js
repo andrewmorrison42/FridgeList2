@@ -13,12 +13,43 @@ import { selections, carryOverTransitions } from '../core/carryover.js';
 import { generate } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { createMemoryStorage } from '../data/storage.js';
+import { createOneDriveStorage } from '../data/onedrive.js';
+import { createAuth } from '../data/auth.js';
 import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
 import { openLocal, deviceIdentity, local } from '../data/persist.js';
 
-export async function createApp({ storage = createMemoryStorage() } = {}) {
+/** Per-device configuration. Never shared — it only decides how this phone reaches the folder. */
+export function readConfig() {
+  return {
+    clientId: local.get('clientId', ''),
+    folder: local.get('folder', '/FridgeList'),
+    storageMode: local.get('storageMode', 'local'),
+    authError: null,
+  };
+}
+
+export async function createApp({ storage } = {}) {
   const identity = deviceIdentity();
+  const config = readConfig();
+
+  // Storage is chosen here and nowhere else: nothing above this line knows
+  // which backend it has (§15.2). Without a client id the app runs entirely on
+  // this device, which is also how it degrades if the backend is unreachable.
+  let auth = null;
+  if (!storage && config.clientId) {
+    auth = createAuth({ clientId: config.clientId });
+    try {
+      await auth.completeSignIn();
+    } catch (err) {
+      config.authError = err.message;
+    }
+    if (auth.connected) {
+      storage = createOneDriveStorage({ getToken: () => auth.getToken(), root: config.folder });
+      config.storageMode = 'onedrive';
+    }
+  }
+  storage = storage ?? createMemoryStorage();
   const persisted = await openLocal();
   const store = createStore(await persisted.all());
   const device = createDevice(identity.id);
@@ -41,7 +72,7 @@ export async function createApp({ storage = createMemoryStorage() } = {}) {
   };
 
   const app = {
-    identity, store, sync, presence, storage,
+    identity, store, sync, presence, storage, config, auth,
 
     get shop() { return currentShop(store.events); },
     get can() { return permissions(store.events); },
@@ -211,6 +242,24 @@ export async function createApp({ storage = createMemoryStorage() } = {}) {
     setNickname(name) {
       local.set('nickname', name);
       identity.nickname = name;
+    },
+
+    setConfig(key, value) {
+      local.set(key, value);
+      config[key] = value;
+    },
+
+    /** Send this device to Microsoft to sign in. Returns here afterwards. */
+    async connect() {
+      if (!config.clientId) throw new Error('an application (client) id is needed first');
+      local.set('storageMode', 'onedrive');
+      await createAuth({ clientId: config.clientId }).signIn();
+    },
+
+    disconnect() {
+      if (auth) auth.signOut();
+      local.set('storageMode', 'local');
+      config.storageMode = 'local';
     },
 
     /** Load a library snapshot (the import's output) into this device. §12. */

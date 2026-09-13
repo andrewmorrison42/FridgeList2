@@ -9,12 +9,12 @@ const CACHE = 'fridgelist-v1';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',
-  './src/ui/views.js', './src/ui/status.js',
+  './src/ui/views.js', './src/ui/status.js', './src/ui/connect.js',
   './src/core/events.js', './src/core/merge.js', './src/core/store.js',
   './src/core/units.js', './src/core/generate.js', './src/core/carryover.js',
   './src/core/shop.js', './src/core/library.js',
   './src/data/storage.js', './src/data/sync.js', './src/data/presence.js',
-  './src/data/persist.js', './src/data/onedrive.js',
+  './src/data/persist.js', './src/data/onedrive.js', './src/data/auth.js',
 ];
 
 self.addEventListener('install', (e) => {

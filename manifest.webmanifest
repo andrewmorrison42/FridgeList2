@@ -1,0 +1,14 @@
+{
+  "name": "The Fridge List",
+  "short_name": "Fridge List",
+  "description": "Household meal planning and shopping list",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#2f6f4f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

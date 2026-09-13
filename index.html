@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f4f">
+<title>The Fridge List</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="src/ui/styles.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+  import { mount, loadLibraryInto } from './src/ui/main.js';
+
+  // No storage passed: the app chooses its own backend from this device's
+  // settings (OneDrive once connected, otherwise local only). Nothing above
+  // src/data/ knows which one it got.
+  const app = await mount(document.getElementById('app'));
+  window.app = app;
+
+  if (app.library.recipes.size === 0) await loadLibraryInto(app);
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

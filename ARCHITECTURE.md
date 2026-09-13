@@ -161,11 +161,22 @@ database, no scheduled job and nothing to keep alive.
 
 ### 3.3 Authentication
 
-A single shared Microsoft account, signed in on each device via MSAL.js
-(authorisation code flow with PKCE — the only flow appropriate for a public
-client with no secret). Scope: `Files.ReadWrite` limited to the application's
-folder path. Tokens are held per-device by MSAL; refresh is silent, so in
-practice nobody signs in twice.
+A single shared Microsoft account, signed in on each device using the
+authorisation code flow with PKCE — the only flow appropriate for a public
+client with no secret. Scope: `Files.ReadWrite`, `offline_access`, `User.Read`.
+Refresh is silent, so in practice nobody signs in twice.
+
+Implemented directly in `src/data/auth.js` rather than with MSAL, which an
+earlier draft of this document specified. The flow is about seventy lines of a
+well-specified standard, and doing it here keeps the "no runtime dependencies"
+rule of §13 genuinely true rather than nearly true — there is no CDN in the
+critical path of signing in, and nothing to rot. The client id is public by
+design; PKCE is what makes that safe, since an intercepted code is useless
+without a verifier that never leaves the device.
+
+The Azure app registration must use the **Single-page application** redirect
+platform. That is what enables CORS on the token endpoint and requires PKCE; the
+"Web" platform expects a client secret and will not work from a static page.
 
 There are no application accounts, no roles and no permissions — NFR-1 and
 URS §7 make this absolute. Anyone holding the shared login can do everything.
@@ -895,22 +906,38 @@ export pipeline. Confirmed wanted in Round 4.
   sw.js                 service worker (app code caching only)
   manifest.webmanifest
   src/
-    core/               NO I/O, NO DOM — pure, and the only tested code
+    core/               NO I/O, NO DOM — pure, and the most heavily tested code
       events.js         event construction, version vectors, causality
       merge.js          the resolution rules (§5.4, §5.5)
+      store.js          derived state + subscriptions (§11.1, FR-SYNC-7)
+      shop.js           the shop chain and phase permissions (§8.1)
+      library.js        recipes, ingredients, cook history (§9, FR-HIST-2)
       generate.js       shopping list generation (§10)
       carryover.js      status transitions (§9.1)
       units.js          conversion (FR-ING-1)
     data/
-      store.js          IndexedDB: events, derived state, upload queue
-      onedrive.js       the storage interface (§15.2)
+      persist.js        IndexedDB: the full local replica (§7.1)
+      storage.js        the five-function storage interface (§15.2)
+      onedrive.js       that interface, over Graph (§3.3)
+      auth.js           Microsoft sign-in, PKCE, no dependency (§3.3)
       sync.js           polling, delta, upload queue, compaction
       presence.js       heartbeats, roster, staleness
-    ui/                 views; read derived state, emit events
+    ui/
+      main.js           mount and router; subscribes views to the store
+      app.js            wiring and every action; owns the side effects
+      dom.js            h() and bind() — no framework (§13)
+      connect.js        Setup: device name, OneDrive connection (§3.3)
+      views.js          plan, list, wait list, recipes
+      status.js         staleness, roster, phase actions, close report
+      styles.css        phone-first, with the print sheet of §10.2
   tools/
     import.js           one-off migration (§12) — Node, run once
   test/
-    properties.test.js  the five invariants (§14)
+    harness.js          scenario replay under environmental variation (§14.1)
+    properties.test.js  the invariants (§14)
+    store.test.js       FR-SYNC-7 — a merge reaches the screen (§11.1)
+    storage-contract.test.js   what any storage backend must satisfy (§15.2)
+    fakes/storage.js    an in-memory backend that misbehaves on purpose
 ```
 
 ### 11.1 The merge must reach the screen (FR-SYNC-7)
@@ -1009,9 +1036,10 @@ instead. That is a discipline, and it is cheaper to sustain than a toolchain.
 to rot. If they break in 2029, the app is unaffected and the invariants can be
 re-verified with whatever exists then.
 
-**Two external runtime pieces**, both unavoidable and both pinned:
-- `@azure/msal-browser` for OAuth (writing PKCE by hand would be worse).
-- Microsoft Graph, called with `fetch`. No SDK.
+**Runtime dependencies: none.** Microsoft Graph is called with `fetch`, and
+sign-in is implemented in `src/data/auth.js` (§3.3). The only npm packages in
+the repository are `vitest` and `fast-check`, which are dev-only and may rot
+without affecting the app.
 
 ---
 
@@ -1045,7 +1073,55 @@ highest-leverage: it verifies the structural claim of §5.9, and if it holds the
 a large share of P1's scenario space is unreachable rather than merely safe. A shrinking counterexample from `fast-check` is
 worth more than any amount of reading the code.
 
-Beyond the properties: worked examples of unit conversion (FR-ING-1), list
+### 14.1 Every property is asserted under variation, never against one run
+
+A property checked against a single replay of a scenario is a property checked
+under one arbitrary set of conditions. So `test/harness.js` replays each
+generated scenario under **every environmental variation that must not matter**
+— per-device clocks skewed in both directions, shuffled delivery order,
+compacted and uncompacted — and fails if any of them changes the answer. Every
+property goes through it; using the raw scenario runner gets you a single-run
+test, which is what the harness exists to discourage.
+
+This began as one property about clock skew, which was the one that caught the
+household's original failure class outright. There was no reason for that to be
+a single property rather than the way all of them are written.
+
+One caveat, recorded so it is not later "fixed" the wrong way: invariance under
+clock skew holds for causally-resolved registers, which is all of them today. A
+last-save-wins field is *permitted* to depend on `ts` (§5.5). If one is added it
+must be projected out of the comparison — never the harness loosened.
+
+### 14.2 Testing what cannot be pure
+
+The property suite exercises the merge engine and nothing else. Both failures
+the household actually reported happened at the edges — storage in one reading,
+rendering in the other — so the edges get their own treatment:
+
+- **Rendering** (`test/store.test.js`). `src/core/store.js` keeps the
+  notification logic pure, which makes FR-SYNC-7 testable without a DOM: events
+  in, subscribers told, and a property asserting that after any interleaving,
+  delivered in any chunk size, what the last notification carried equals the
+  merged truth. It also asserts the converse — no notification when the answer
+  did not change — so a blind untick that loses does not cause a re-render.
+- **Storage** (`test/storage-contract.test.js`). The backend is defined by an
+  executable contract that any implementation must pass, exercised against an
+  in-memory fake that fails on purpose. The OneDrive adapter runs the same
+  contract when it exists.
+
+The atomicity requirement of §7.4 is in that contract, and one test exists
+purely to demonstrate why: with a non-atomic backend, a device destroys its own
+log and loses ticks no other device holds a copy of.
+
+Writing it surfaced something the requirement had not stated. A retry
+immediately after a bad write *heals* the corruption — so the loss only becomes
+permanent when the device does not get to retry. That is not an exotic case: it
+is a phone going back into a pocket, the app suspending, or a flat battery by
+the freezers. **A durability property that holds only while the app stays awake
+is not durability**, and the test now models the interruption rather than
+assuming a co-operative device.
+
+Beyond all of this: worked examples of unit conversion (FR-ING-1), list
 generation (§10), and the carry-over state machine (§9.1) — ordinary unit tests,
 since those are pure functions with known answers.
 

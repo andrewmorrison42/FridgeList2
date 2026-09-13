@@ -9,6 +9,13 @@ locked for the duration of a shop. This splits regeneration into a draft-phase
 activity and a no-op during shopping (§5.7), adds the phase principle in §5.9,
 and reduces orphaned lines (§5.7) from a routine case to a defensive backstop.
 
+**Changes in v0.4:** results of the failure autopsy in
+[`FAILURE-AUTOPSY.md`](FAILURE-AUTOPSY.md), which traced the household's two
+reported failures against this design. Both are prevented, but the exercise
+found one hole — nothing required a merged change to reach the screen — now
+closed by FR-SYNC-7 and §11.1. Also records the atomic-upload assumption that
+§7.4 had been relying on silently.
+
 **Changes in v0.3:** results of an adversarial review of the draft phase and the
 shop-closing flow. States the two design principles in §1.2. Removes the shared
 `closed.json` and the trip-history file, both of which broke §4's
@@ -509,6 +516,16 @@ ETag actually changes (D8).
 
 ### 7.4 The upload queue
 
+**This design depends on the upload being atomic.** A device rewrites its own
+`.jsonl` with new events appended; were that write to land partially, the device
+would truncate its own log and lose its own events — the same failure the whole
+file layout exists to prevent, self-inflicted. A Graph simple upload of a small
+file is atomic: it creates a new version of the item rather than mutating it in
+place, so a failed upload leaves the previous version intact and the retry
+re-sends. **Any future storage backend must provide the same guarantee**
+(§15.2); it is not optional, and it had been assumed rather than stated until
+the failure autopsy asked why F1 could not recur.
+
 Unsent events sit in an IndexedDB queue. On failure, retry with exponential
 backoff (2 s, 4 s, 8 s, 16 s, then every 30 s) until success. Uploads are
 appends of whole-file content: the device rewrites its own `.jsonl` with the
@@ -896,6 +913,25 @@ export pipeline. Confirmed wanted in Round 4.
     properties.test.js  the five invariants (§14)
 ```
 
+### 11.1 The merge must reach the screen (FR-SYNC-7)
+
+Every requirement about synchronisation constrains how data moves **between**
+devices. None constrained how it moves from a device's own state to its own
+screen — and a device that has merged a tick correctly but still displays the
+old list is, to the person holding it, identical to one that never received the
+tick. That was a live hole until the failure autopsy found it, and it is a
+plausible root cause of one of the two failures actually reported.
+
+So: **a merge that changes derived state re-renders the affected views, with no
+user action.** Concretely — the store publishes a change; views subscribe; no
+view reads state once at mount and keeps it. There is no pull-to-refresh
+anywhere in this app, and no screen that is only correct just after you opened
+it.
+
+This is not testable by the property suite in §14, which exercises the engine
+and never the screen. It is checked by a scenario test (Stage 3): merge an
+event from a simulated second device and assert the rendered list changed.
+
 `src/core/` is pure: no network, no DOM, no storage, no clock except what is
 passed in. That is what makes the invariants testable by generating millions of
 scenarios in memory (§14). **The merge rules must not leak outside
@@ -1137,6 +1173,7 @@ Deliberately minimal, and appropriate to the deployment:
 | FR-SYNC-4 reconcile | §8.4 |
 | FR-SYNC-5 transport unconstrained | §15.2 |
 | FR-SYNC-6 brief offline | §7.1, §7.4 |
+| FR-SYNC-7 display currency | §11.1; `FAILURE-AUTOPSY.md` F2(c) |
 | FR-HIST-1 immutable trip record | §8.6, §15.3 (the `shop.closed` event itself) |
 | FR-HIST-2 signal derived from history | §15.3 |
 | NFR-1 no roles | §3.3 |

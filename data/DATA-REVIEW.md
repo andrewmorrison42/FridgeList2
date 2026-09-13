@@ -54,6 +54,13 @@ This matters because **FR-ING-1 requires that a shopping quantity is never
 presented without applying a cooking→shopping conversion** — and the conversion
 currently in the data is not a real one for many ingredients.
 
+> **Decision (2026-09-13): option (a) — leave it.** The household is prepared
+> to accept the inaccuracy. The quantity is read as a rough guide, not as a
+> weight to be matched at the scales, and years of successful shopping bear
+> that out. Recorded here so that a future reader finds a decision rather than
+> an unnoticed defect. If it is ever revisited, option (c) is the one to
+> revisit it with.
+
 **Not fixed, because fixing it would change what you buy.** Correcting basil
 from 250 g to 25 g per cup is a change to your shopping list, not a data
 cleanup, and it is your decision. Three options:

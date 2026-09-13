@@ -1,6 +1,9 @@
 # The Fridge List — Software Requirements Specification
 
-**Status:** Draft v0.3. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+**Status:** Draft v0.4. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+
+**Changes in v0.4 (2026-09-13):** adds **FR-SYNC-7 (Display currency)**,
+found by the failure autopsy in `FAILURE-AUTOPSY.md`.
 
 **Changes in v0.3 (2026-09-13):** adds **FR-LIST-7** (buying a Wait List item
 fulfils it) and **FR-SHOP-4** (explicit shop completion, reachable from
@@ -325,6 +328,17 @@ failures.
 - **FR-SYNC-5.** The specific mechanism a device uses to exchange data
   with others (which storage or transport it uses) is unconstrained by
   this specification; only the outcomes above are required. *(URS §6)*
+- **FR-SYNC-7 (Display currency).** Once a device has merged a change
+  into its local state, it shall reflect that change in what it displays
+  **without requiring any user action** — no manual refresh, no
+  navigation away and back, no reopening the app. A device that holds
+  current data but shows stale data is indistinguishable, to the person
+  looking at it, from one that never received the change, and is
+  therefore a defect under FR-SYNC-3. *(New in v0.4. Added after a
+  failure autopsy found that every requirement here constrained how data
+  moves **between** devices, and none constrained how it moves from a
+  device's own state to its own screen — which is where one of the two
+  reported failures may well have occurred. See `FAILURE-AUTOPSY.md`.)*
 - **FR-SYNC-6.** The system shall continue to function for
   single-device use (adding items, ticking lines, viewing the list)
   through brief losses of connectivity, deferring propagation to other
@@ -379,7 +393,7 @@ statements rather than behaviour to translate:
 | §4.4 After the shop | FR-MENU-2, FR-WAIT-1, FR-HIST-1, FR-LIST-7, FR-SHOP-4 |
 | §4.5 Carry-over | FR-MENU-3–7 |
 | §5 Data requirements | §2 Definitions, FR-ING-1–3, FR-HIST-1 |
-| §6 Sync & concurrency | FR-SYNC-1–6, FR-SHOP-2, FR-SHOP-3 |
+| §6 Sync & concurrency | FR-SYNC-1–7, FR-SHOP-2, FR-SHOP-3 |
 | §7 Non-functional | NFR-1–4, §4 Operating environment |
 | §8 Out of scope | §7 Explicitly out of scope |
 | §9 Carried forward | FR-REC-4, FR-LIST-6, FR-ING-3–4, FR-ING-1, FR-STA-2 |

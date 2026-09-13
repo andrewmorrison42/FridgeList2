@@ -1,6 +1,12 @@
 # The Fridge List — Software Requirements Specification
 
-**Status:** Draft v0.1. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+**Status:** Draft v0.2. Derived from [`URS.md`](URS.md) (v0.1, 2026-09-13).
+
+**Changes in v0.2 (2026-09-13):** adds **FR-SHOP-3 (Menu Lock)** — the
+menu is locked for the duration of a shop — and amends FR-MENU-1,
+FR-MENU-6 and FR-SHOP-1, which previously permitted menu changes
+mid-shop. Wait List additions during a shop remain permitted. No
+requirement IDs were renumbered.
 
 ## 0. How to read this document
 
@@ -119,8 +125,12 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
 **Carried over**, or **Flagged**. The lifecycle:
 
 - **FR-MENU-1.** Any user may add a recipe with a servings count to the
-  current week's menu selection at any time, including after a shop has
-  started (URS §4.2, §6). Newly added entries start as **Planned**.
+  current week's menu selection at any time **while no shop is open**
+  (URS §4.2, §6). Newly added entries start as **Planned**. Once a shop
+  has started the menu is locked for its duration — see FR-SHOP-3.
+  *(Amended v0.2. The original permitted menu additions after a shop had
+  started; FR-SHOP-3 supersedes that, on the stakeholder's decision that
+  the menu should be settled before shopping begins.)*
 - **FR-MENU-2.** Any user may mark a **Planned** menu selection as
   **Cooked**, at any time, including after the shop that produced its
   ingredients has finished. *(URS §4.4)*
@@ -143,8 +153,10 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
   every recipe; this requirement assumes a uniform one-week carry-over
   and flags the open question rather than resolving it. **(assumed)**)*
 - **FR-MENU-6.** A user may remove any menu selection (Planned, Carried
-  over, or Flagged) at any time, which is how a Flagged entry is
-  deliberately dropped.
+  over, or Flagged) at any time **while no shop is open**, which is how a
+  Flagged entry is deliberately dropped. Once a shop has started the menu
+  is locked for its duration — see FR-SHOP-3. *(Amended v0.2, as
+  FR-MENU-1.)*
 - **FR-MENU-7.** When a shopping list is (re)generated and it includes a
   **Carried over** entry, the system shall not fold that entry's
   ingredients into the ordinary combined shopping-list lines (FR-LIST-2)
@@ -215,11 +227,14 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
 
 ### 5.7 During a shop
 
-- **FR-SHOP-1.** A user may add a new item (from any source — a new
-  Wait List entry, a new menu selection, or a direct addition) to a
-  shopping list that is already open, and the system shall incorporate
-  it without discarding or resetting any existing line's done state.
-  *(URS §4.2, §6)*
+- **FR-SHOP-1.** A user may add a new item — a new Wait List entry, or a
+  direct addition to the list — to a shopping list that is already open,
+  and the system shall incorporate it without discarding or resetting any
+  existing line's done state. *(URS §4.2, §6. Amended v0.2: the original
+  also permitted adding a new menu selection mid-shop; FR-SHOP-3 now
+  forbids that. Wait List additions remain permitted during a shop
+  because they are deliberate, purely additive decisions — someone
+  noticing a gap while standing in the aisle.)*
 - **FR-SHOP-2.** The system shall never remove or reset a shopping-list
   line's **done** state as a side effect of anything other than a
   direct, explicit user action to untick it. In particular, adding an
@@ -228,6 +243,22 @@ A menu selection's status shall be one of: **Planned**, **Cooked**,
   done**. *(URS §6 — this is the tick durability requirement, restated
   here as it applies within a single device's session; see FR-SYNC-1
   for the cross-device form.)*
+- **FR-SHOP-3 (Menu Lock).** From the moment a shop starts until it
+  finishes, the week's menu selection is **locked**: no menu selection
+  may be added, and none may be removed. The shopping list generated
+  from it is correspondingly closed to removals (FR-LIST-3 already
+  confines the pantry check to before shopping begins). During an open
+  shop the only permitted changes to the list are **additions** — a new
+  Wait List entry or a direct addition (FR-SHOP-1) — and changes to
+  lines' **done** state (FR-LIST-5).
+  Marking a selection **Cooked** (FR-MENU-2) is not a menu change and
+  remains permitted at any time.
+  *(New in v0.2, at the stakeholder's direction. Rationale: a shop is an
+  execution of a decision already made, so the decision is not revised
+  while it is being executed. This also removes, structurally, every
+  operation that could destroy a tick during the only window in which
+  ticks exist — see FR-SYNC-1, which this requirement exists to protect.
+  It supersedes the mid-shop clauses of FR-MENU-1 and FR-SHOP-1.)*
 
 ### 5.8 Cross-device sync and reconciliation
 
@@ -319,11 +350,11 @@ statements rather than behaviour to translate:
 | §3 Core concepts | FR-ING-*, FR-REC-1, FR-STA-*, FR-MENU-*, FR-WAIT-*, FR-LIST-*, FR-HIST-* |
 | §4.1 Between shops | FR-WAIT-1 |
 | §4.2 Starting a shop | FR-MENU-1, FR-STA-1, FR-LIST-1–3, FR-LIST-6, FR-ING-2 |
-| §4.3 During the shop | FR-SHOP-1, FR-SYNC-2–4 |
+| §4.3 During the shop | FR-SHOP-1, FR-SHOP-3, FR-SYNC-2–4 |
 | §4.4 After the shop | FR-MENU-2, FR-WAIT-1, FR-HIST-1 |
 | §4.5 Carry-over | FR-MENU-3–7 |
 | §5 Data requirements | §2 Definitions, FR-ING-1–3, FR-HIST-1 |
-| §6 Sync & concurrency | FR-SYNC-1–6, FR-SHOP-2 |
+| §6 Sync & concurrency | FR-SYNC-1–6, FR-SHOP-2, FR-SHOP-3 |
 | §7 Non-functional | NFR-1–4, §4 Operating environment |
 | §8 Out of scope | §7 Explicitly out of scope |
 | §9 Carried forward | FR-REC-4, FR-LIST-6, FR-ING-3–4, FR-ING-1, FR-STA-2 |
@@ -348,4 +379,12 @@ decided:
       anyone to edit at any time?
 - [ ] Is there a requirement to export or print a shopping list?
 - [ ] Any requirement for accounts/login beyond whatever a sync
-      mechanism needs?
+      mechanism needs? **Resolved in the architecture:** no — one shared
+      login for the sync backend, no application accounts.
+- [ ] **New in v0.2.** FR-SHOP-3 locks the menu for a shop's duration,
+      and gives no way to unlock it. If a shop is started against the
+      wrong menu, there is currently no specified recovery other than
+      finishing it. Is an "abandon this shop" action needed, or an
+      unlock permitted while no line has yet been ticked? Neither is
+      specified; both are safe with respect to FR-SYNC-1 while no tick
+      exists.

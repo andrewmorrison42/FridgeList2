@@ -914,17 +914,33 @@ state is ephemeral by design.
 
 ### 12.1 What the data looks like
 
-Analysed 2026-09-13. **Referential integrity is perfect**: 5,561 recipe
-ingredient lines across 638 recipes reference 438 distinct ingredient names, and
-every one resolves against the 452-entry master list. Zero orphans. This is a
-clean import, not a salvage.
+Analysed 2026-09-13, in full, with the results in
+[`data/DATA-REVIEW.md`](data/DATA-REVIEW.md) and a corrected source at
+`data/recipes-data.reviewed.json`.
+
+**Referential integrity is perfect**: 5,561 recipe ingredient lines across 638
+recipes reference 438 distinct ingredient names, and every one resolves against
+the 452-entry master list. Zero orphans. This is a clean import, not a salvage.
+
+Two findings from that review bear on the design rather than on the data:
+
+- **Conversions in the source are volumetric, not gravimetric.** Every
+  ingredient converts at 1 cup = 250, whatever it is — the number is millilitres
+  carried into a field labelled grams. For dense ingredients that is near
+  enough; for leafy ones it overstates by up to tenfold. FR-ING-1 requires a
+  real conversion, so either the factors are corrected or those ingredients move
+  to a `qty` shopping unit. **Unresolved — it changes what the household buys,
+  so it is theirs to decide.**
+- **Some ingredients should never reach a shopping list** — `water` is in the
+  master list. The model has no way to express that today. Either a data fix or
+  a "never shop this" flag on the ingredient; see §19 A6.
 
 ### 12.2 Transformations
 
 | Step | Action |
 |---|---|
 | Ingredient identity | Assign a stable `id`; rewrite all 5,561 references from name to id (Round 6). Names become editable display labels — a typo fix can no longer orphan 40 recipe lines |
-| Duplicate names | 452 entries, 450 distinct names. Merge the two duplicates, repointing references |
+| Duplicate names | 452 entries, 450 distinct names — but the duplicates (*Mint*, *Tahini*) are **not** the same thing: one Mint is fresh (Vegetables aisle), the other dried (Spices). They must be disambiguated by hand before the import assigns ids, not merged. See `data/DATA-REVIEW.md` §2 |
 | Aisle casing | Merge `Baking`/`baking`, `Biscuits`/`biscuits`, `Freezer`/`freezer`, `International`/`international`. 26 values → 22 |
 | Quantities | 1,269 of 5,561 are strings, the rest numbers. Coerce to number; fail loudly on anything unparseable |
 | Units | `unit` is the shopping unit; `displayUnit` the cooking unit. Absent on 3,104 lines, meaning cooked and shopped in the same unit — no conversion, which satisfies FR-ING-1 trivially |
@@ -1227,6 +1243,16 @@ Architectural, needing an answer before or during implementation:
   household simply begins ticking, either the app must treat the first tick as
   an implicit lock, or ticking must be unavailable until the shop is open. The
   second is more predictable; the first is kinder. Not yet decided.
+- **A6.** The ingredient model has no way to say "this is never bought".
+  `water` is in the master list, and recipe lines exist with a quantity of zero
+  that read as "to taste" or "to serve". Both need somewhere to live: a
+  never-shop flag on the ingredient, and a quantity-less recipe line that does
+  not reach the shopping list. Neither is in `SRS.md`. See
+  `data/DATA-REVIEW.md` §3 and §7.
+- **A7.** FR-ING-1 assumes one conversion per (ingredient, cooking unit). The
+  source data holds several for 107 pairs — rounding noise, not disagreement.
+  The migration resolves it by taking the median implied factor, which is
+  recorded here so the choice is visible rather than buried in a script.
 
 Carried forward from `SRS.md` §9, unchanged and not blocking:
 

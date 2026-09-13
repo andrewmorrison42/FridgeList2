@@ -1,8 +1,29 @@
 # The Fridge List — Architecture & Design
 
-**Status:** Draft v0.1, 2026-09-13. Derived from [`URS.md`](URS.md) v0.1 and
-[`SRS.md`](SRS.md) v0.1, and from an architecture interview with the
+**Status:** Draft v0.2, 2026-09-13. Derived from [`URS.md`](URS.md) v0.1 and
+[`SRS.md`](SRS.md) v0.2, and from an architecture interview with the
 stakeholder on the same date.
+
+**Changes in v0.2:** incorporates **FR-SHOP-3 (Menu Lock)** — the menu is
+locked for the duration of a shop. This splits regeneration into a draft-phase
+activity and a no-op during shopping (§5.7), adds the phase principle in §5.9,
+and reduces orphaned lines (§5.7) from a routine case to a defensive backstop.
+
+**Changes in v0.4:** results of the failure autopsy in
+[`FAILURE-AUTOPSY.md`](FAILURE-AUTOPSY.md), which traced the household's two
+reported failures against this design. Both are prevented, but the exercise
+found one hole — nothing required a merged change to reach the screen — now
+closed by FR-SYNC-7 and §11.1. Also records the atomic-upload assumption that
+§7.4 had been relying on silently.
+
+**Changes in v0.3:** results of an adversarial review of the draft phase and the
+shop-closing flow. States the two design principles in §1.2. Removes the shared
+`closed.json` and the trip-history file, both of which broke §4's
+write-only-your-own-file rule (§8.6, §15.3). Makes the shop a chain rather than
+a created object, so two shops cannot exist (§8.1). Derives line quantities
+instead of storing them, removing a last-save-wins race (§5.5, §10). Replaces
+the carry-over counter with a set (§9.1). Separates the menu lock from the
+shopper roster (§8.1, §8.2). Adds FR-LIST-7 and FR-SHOP-4.
 
 This document says *how* the system is built. It is subordinate to `SRS.md`:
 where this document and the SRS disagree, the SRS wins and this document is
@@ -34,6 +55,7 @@ one closed off options; none is incidental.
 | D8 | 638 recipes / 452 ingredients / ~1 MB of existing data to import | Supplied data files | Library is fetched conditionally, never re-polled wholesale (§7.3, §12) |
 | D9 | Verification is a one-off exercise, not a maintained CI burden | Stakeholder, Round 4 | Property-based tests written once, kept, run on demand (§14) |
 | D10 | Data must remain the household's if the backend disappears | Stakeholder, Rounds 2 & 7 | Every device holds the complete history; backend is a courier (§15) |
+| D11 | The menu is settled before shopping, and locked during it | FR-SHOP-3 | Removes every destructive operation from the window in which ticks exist (§5.9) |
 
 ### 1.1 Decisions at a glance
 
@@ -47,12 +69,39 @@ one closed off options; none is incidental.
 | Concurrency control | Version vectors (causal), never wall-clock ordering |
 | Tick/untick rule | True-wins on concurrency; an untick counts only if it saw the tick |
 | Library edit rule | Last-save-wins, deterministically tie-broken |
-| Regeneration | Additive only; never writes over an existing line's state |
+| Shop phases | `draft` freely editable; `open` is additive only (FR-SHOP-3) |
+| Regeneration | A draft-phase activity; never runs while a shop is open |
 | Identity | One shared Microsoft login; anonymous per-device id + nickname |
 | Language / tooling | Vanilla ES modules; dev-only test dependencies |
 | Verification | Property-based testing of the merge engine (5 invariants) |
 | Retention | Trip history 2 years; shop logs compacted and deleted at close |
 | Backup | Weekly copy of the OneDrive folder to the household NAS |
+
+### 1.2 Two design principles
+
+Both were arrived at by review rather than up front, and both have since
+resolved more defects than any amount of careful coding would have.
+
+> **P-I — Prefer making a failure unrepresentable over making it handled.**
+> Where a bad state can be designed out, design it out and write no handling
+> code. Handling code is where the next defect lives. Applied at: one shop by
+> construction (§8.1), sets instead of counters (§9.1), derived instead of
+> stored quantities (§5.5), trip history as events rather than a file (§15.3),
+> and the phase lock itself (§5.9).
+
+> **P-II — Accept a risk only when the failure is loud, recoverable, and
+> genuinely expensive to prevent. Fix every silent failure regardless of how
+> unlikely it is.**
+> A loud failure gets noticed and fixed; a silent one — a lost tick, a quantity
+> quietly too low, a Wait List item that vanishes — compounds unseen for years,
+> and is the entire category this rebuild exists to eliminate. Cheapness of
+> prevention is checked *first*: if it costs a sentence, do it and stop
+> deliberating.
+
+A worked example of P-II: an unfinished shop blocking next week's planning
+(§8.6) is accepted, because it is loud and a button fixes it. Two shops
+existing at once was not accepted, because ticks would split silently between
+them — even though it was just as unlikely.
 
 ---
 
@@ -246,9 +295,27 @@ ticks share one code path (Round 4, Q5).
 | Menu selection cooked flag | True-wins on concurrency | Marking cooked is additive; un-cooking must be causally informed |
 | Wait List item present/absent | Present-wins on concurrency | FR-WAIT-2 — an item must never vanish |
 | Menu servings count | Last-save-wins | Numeric correction; loss is visible and trivially redone |
+| Generated line quantity | **Not stored — derived** from the merged menu selection set | See below |
+| Manually added line quantity | Last-save-wins | Nothing derives it |
 | Recipe fields, ingredient fields | Last-save-wins, per field | Stakeholder Round 4: edits are rare and made in the moment |
 | Shopping line removal (pre-shop) | Present-wins; removal only valid while the shop is a draft | FR-LIST-3 + §8.5 |
 | Carried-over dismissal | Shop-scoped, last-save-wins | FR-MENU-7.2 — affects the current shop only |
+
+**Quantities of generated lines are derived, never stored.** Had they been a
+stored last-save-wins field, two people generating concurrently in draft — one
+with menu {X}, one with {X, Y} — would each emit a total for an ingredient the
+two recipes share, and the merge would keep one of them, possibly the smaller.
+You would buy too few onions and nothing would say so: a silent failure, which
+P-II forbids at any probability. Deriving the quantity from the merged menu
+selection set removes the race entirely, because both devices converge on the
+same menu and therefore compute the same total. Only manually added lines carry
+a stored quantity, because nothing derives them.
+
+A second rule of the same family, learned from the carry-over counter (§9.1):
+
+> **Never increment. Record set membership and derive the number.** Counters
+> double-count when the same logical change is computed on two devices; sets
+> are idempotent under union and cannot.
 
 Last-save-wins needs a deterministic answer for genuinely concurrent edits, or
 devices would disagree forever. Order by: causal order first; if concurrent,
@@ -267,29 +334,57 @@ one's tick to keep and is therefore a way to lose a tick.
 
 This is why ingredient identity must be a stable id rather than a name (§12.2).
 
-### 5.7 Regeneration proposes; it never replaces
+### 5.7 Regeneration is a draft-phase activity
 
 Generating a shopping list is a **pure function** of (menu selections, staples,
-Wait List, ingredient master) producing a proposed set of lines. Applying it is
-strictly additive:
+Wait List, ingredient master) producing a proposed set of lines. What may be
+done with that proposal depends entirely on which phase the shop is in
+(§8.1) — and the two cases are different enough to state separately.
 
-- For each proposed line not already present in the shop: emit `line.added`.
-- For each proposed line already present: **emit nothing**. The existing line,
-  and its done state, is untouched.
-- For each existing line no longer proposed: **emit nothing**. The line stays,
-  marked `orphaned` in the UI (its source was removed), and the household
-  decides. It is never deleted, because deleting it would take its tick with it.
+**While the shop is `draft`.** Regeneration runs freely and may emit both
+additions and removals. This is safe not by permission but **by construction**:
+ticking is only possible once a shop is open (FR-LIST-5), so during `draft`
+*no tick exists anywhere* and there is nothing for FR-SYNC-1 to protect.
+Menu edits, servings changes and the pantry check all belong here.
+
+Two rules still hold in draft, because they protect deliberate human decisions
+rather than ticks:
+
+- A pantry-check removal (FR-LIST-3) is a `line.suppressed` **event**, not a
+  deletion. A later regeneration must not resurrect flour that someone has
+  already said they have. Suppression persists for the life of the draft.
+  Where the suppressed line originated from a Wait List item, the suppression
+  **also fulfils that item** and removes it from the Wait List (FR-LIST-4) —
+  "we already have it" settles the Wait List entry just as buying it would
+  (FR-LIST-7). Suppressing a line and leaving its Wait List item open would
+  make the item reappear on every future shop.
+- Nothing is ever overwritten. Regeneration emits events like everything else
+  (§5.1); it does not compute a state and store it.
+
+**Once the shop is `open`.** Regeneration **does not run at all.** FR-SHOP-3
+locks the menu for the duration of the shop, so the inputs that produced the
+list cannot change, so there is nothing to recompute. The shop's line set from
+this point changes only by explicit addition (§8.5).
 
 There is no code path anywhere that computes a fresh list and writes it over the
-live one. This is driver D2 made structural: the user cannot tell a
-regeneration bug from a sync bug, so regeneration is denied the ability to
-destroy anything at all.
+live one, in either phase. This is driver D2 made structural: the user cannot
+tell a regeneration bug from a sync bug, so regeneration is denied the ability
+to destroy anything at all — and after the lock, denied the ability to run.
 
-Quantities are the one subtlety. When regeneration computes a different summed
-quantity for an existing line (a recipe's servings changed), it emits a
-`line.qty` event — a last-save-wins field change that adjusts the number shown.
-It does **not** touch `done`. A ticked line whose quantity later rises shows
-"ticked · quantity increased since" rather than quietly un-ticking.
+**Orphaned lines.** A line whose source has disappeared while the shop is open
+is marked `orphaned` in the UI and **never deleted**, because deleting it would
+take its tick with it. Under FR-SHOP-3 this should now be nearly unreachable —
+the menu is frozen, and the shop snapshots its generation inputs at the lock
+(§6), so ordinary library edits cannot orphan a line either. It is retained as
+a **defensive backstop** rather than a routine path: if a line ever does lose
+its source during an open shop, the system shows that fact and keeps the tick,
+instead of quietly removing evidence that someone put something in the trolley.
+
+**Quantities** need no special handling, because generated quantities are
+derived rather than stored (§5.5). A servings change in draft simply changes
+what the list derives; there is no stored number to go stale and no `line.qty`
+event to race. At the lock, the derived quantities are frozen into the shop's
+header (§6) and do not change again for the shop's duration.
 
 ### 5.8 Why FR-SYNC-1 holds
 
@@ -308,6 +403,39 @@ The guarantee rests on four structural properties, not on care:
 
 §14 turns each of these into a testable property rather than an assertion.
 
+### 5.9 The phase principle
+
+FR-SHOP-3 makes a single sentence carry most of the weight of this design:
+
+> **Destructive operations are permitted exactly when there is nothing for
+> FR-SYNC-1 to protect.**
+
+Ticks exist only while a shop is `open` (FR-LIST-5). So the phases line up
+exactly with the risk:
+
+| | `draft` | `open` |
+|---|---|---|
+| Ticks in existence | none | the thing being protected |
+| Menu add / remove | yes | **no** (FR-SHOP-3) |
+| Line removal | yes — the pantry check (FR-LIST-3) | **no** |
+| Regeneration | yes | **does not run** |
+| Line addition | yes | yes (FR-SHOP-1) |
+| Wait List addition | yes | yes — deliberate and purely additive |
+| Tick / untick | n/a | yes (§5.4) |
+| Mark cooked | yes | yes (FR-MENU-2 — not a menu change) |
+
+Read the `open` column: **there is no destructive operation in it at all.** The
+merge engine's hardest case — a removal racing a tick — cannot arise, because
+removals do not exist in the only window where ticks do.
+
+This is worth stating plainly, because it reorders the design's own priorities:
+**the phase lock does more for tick durability than the merge rules do.** The
+causal merge of §5.4 still earns its place — it is what makes a deliberate
+untick safe, which the lock does not address — but it now guards a far narrower
+risk than it was originally drawn to cover. That is the right direction for a
+system with one hard guarantee: prefer making a failure impossible over making
+it recoverable.
+
 ---
 
 ## 6. Storage layout
@@ -319,14 +447,12 @@ The guarantee rests on four structural properties, not on care:
     log/<deviceId>.jsonl              append-only events since that device's last compaction
   shops/
     <shopId>/
-      header.json                     written once at creation; immutable
+      header.json                     written once at the lock; immutable
       log/<deviceId>.jsonl            append-only shop events
+      snapshot/<deviceId>-<n>.json    compacted shop events, incl. the close (§8.6)
       presence/<deviceId>.json        heartbeat; small; overwritten by its owner only
-      closed.json                     written once at close (§8.6)
-  history/
-    trips-<year>.json                 append-only; recipes + timestamp only
   archive/
-    shops/<shopId>/closed.json        closed shops, retained per §15.3
+    shops/<shopId>/                   closed shops, retained per §15.3
 ```
 
 `state/` holds everything long-lived: recipes, the ingredient master list,
@@ -335,9 +461,25 @@ settings. `shops/<shopId>/` holds everything scoped to one shop: its lines and
 their done state. Menu selections live in `state/` rather than in a shop
 because they outlive shops — that is what carry-over means (FR-MENU-3).
 
+There is no shared `closed.json` and no trip-history file. Both existed in v0.1
+and both broke the rule above: a file written by whichever device happened to
+act, and therefore a file two devices could overwrite. Closing is an event
+(§8.6) and trip history is derived from those events (§15.3). Every file in the
+tree is now either written by exactly one device, or written exactly once and
+never again.
+
+`header.json` is written once when the shop locks, and records **the resolved
+line set and the inputs that produced it** — menu selection ids, the staple set,
+Wait List ids, and the recipe revisions used. Because FR-SHOP-3 freezes those
+inputs, the open shop holds no live references to the library: a recipe edited
+mid-shop by whoever is cooking cannot alter a list someone is standing in a shop
+holding. It also means FR-HIST-1's trip record falls out for free at close — the
+selections are already captured.
+
 Every path containing `<deviceId>` is written by that device and no other. The
-only files not so scoped are `header.json` and `closed.json`, each written
-exactly once, and never modified (§8.6 explains why a concurrent close is safe).
+only file not so scoped is `header.json`, written exactly once at the lock and
+never modified. Two devices locking concurrently write identical content, since
+both derive it from the same merged menu.
 
 ---
 
@@ -374,6 +516,16 @@ ETag actually changes (D8).
 
 ### 7.4 The upload queue
 
+**This design depends on the upload being atomic.** A device rewrites its own
+`.jsonl` with new events appended; were that write to land partially, the device
+would truncate its own log and lose its own events — the same failure the whole
+file layout exists to prevent, self-inflicted. A Graph simple upload of a small
+file is atomic: it creates a new version of the item rather than mutating it in
+place, so a failed upload leaves the previous version intact and the retry
+re-sends. **Any future storage backend must provide the same guarantee**
+(§15.2); it is not optional, and it had been assumed rather than stated until
+the failure autopsy asked why F1 could not recur.
+
 Unsent events sit in an IndexedDB queue. On failure, retry with exponential
 backoff (2 s, 4 s, 8 s, 16 s, then every 30 s) until success. Uploads are
 appends of whole-file content: the device rewrites its own `.jsonl` with the
@@ -409,14 +561,65 @@ writing the newer one successfully.
 ### 8.1 States
 
 `draft` → `open` → `closed`. At most one shop is not `closed` at any time
-(SRS §2). A shop is created with an immutable `header.json` naming its id,
-creation time, and creating device.
+(SRS §2) — and this is guaranteed structurally rather than by convention:
 
-Lines may be removed only while the shop is `draft` — that is the pantry check
-of FR-LIST-3. **Once a shop is `open`, removal is forbidden**; items may still
-be added (FR-SHOP-1). This was the stakeholder's decision in Round 3 and it
-closes an entire class of tick loss: nobody can delete a line out from under
-someone else's tick.
+> **Nobody creates a shop.** There is always exactly one current shop, in
+> `draft`. Generating a list populates it; locking transitions it; closing it
+> brings the next one into being. Shop ids form a chain — each shop's close
+> event names its successor's id, derived deterministically from its own, from
+> a fixed genesis id.
+
+Two people therefore cannot start two shops, because starting a shop is not an
+operation that exists. This matters more than it looks: were two shops to exist,
+ticks would split silently between them, which P-II forbids. Deterministic
+successor ids also mean two concurrent closes name the same next shop rather
+than forking the chain.
+
+**`draft`** is where decisions are made: pick the menu, set servings, generate,
+and do the pantry check (FR-LIST-3). Everything is editable, and regeneration
+runs on demand (§5.7).
+
+**Locking the menu is one action; joining as a shopper is another.** They are
+deliberately separate:
+
+- **"Menu is settled"** — pressed once, by whoever happens to be there, after
+  the meals are chosen. It locks the menu for everyone. Concurrent presses are
+  harmless: the lock is a true-wins register (§5.4), so two people pressing it
+  produce one lock.
+- **"I'm shopping"** — pressed by each person going to the shop, at whatever
+  time suits them. This is the roster (§8.2), and it drives staleness reporting.
+
+Per FR-SHOP-3, from the lock until the shop finishes:
+
+- **No menu selection may be added or removed.** The week's plan is settled.
+- **No shopping-list line may be removed.** The pantry check is over.
+- **Lines may be added** — a Wait List entry or a direct addition (FR-SHOP-1).
+- **Lines may be ticked and unticked** (FR-LIST-5, §5.4).
+- **Selections may be marked cooked** (FR-MENU-2) — that is not a menu change.
+
+The rationale is the household's own: *a shop is the execution of a decision
+already made, so the decision is not revised while it is being executed.* The
+architectural payoff is §5.9 — it removes every destructive operation from the
+only window in which ticks exist. Nobody can delete a line, or the menu entry
+behind it, out from under someone else's tick, because during a shop nobody can
+delete anything at all.
+
+Wait List additions are the deliberate exception, and they are safe for the same
+reason FR-SYNC-1 permits them: they are purely additive. Someone spotting an
+empty jar of mayonnaise in aisle six adds to the list; they never take away.
+
+**A menu addition already in flight when the lock lands is not discarded.**
+Someone adding a recipe at the same moment another person locks has not seen the
+lock, so the two events are concurrent — and FR-SYNC-1 protects menu additions
+as explicitly as it protects ticks. Rejecting it would be exactly the silent
+loss this design exists to prevent. So the addition lands, and its ingredients
+join the list **as additions**, which the lock already permits (FR-SHOP-1). The
+household is told, not asked: *"Chicken Adobo was added as the list locked — its
+ingredients are on the list."* Informational, in the same register as the
+double-tick report (§8.4) and the carry-over section (§9.1).
+
+Stated precisely, then: **the menu is locked from the moment each device sees
+the lock; anything already in flight lands as an addition.**
 
 ### 8.2 The shopper roster and presence
 
@@ -468,33 +671,76 @@ sync — upload everything queued, fetch every device's log — then reports:
 
 ### 8.5 Adding mid-shop (FR-SHOP-1)
 
-Adding emits `line.added` and nothing else. No regeneration is triggered, no
-existing line is recomputed, no done state is touched. This falls out of §5.7
-rather than being a special case.
+Two things may be added during an open shop: a **Wait List entry** (which also
+becomes a line on this shop's list) and a **direct addition** to the list. A new
+*menu selection* may not — that is FR-SHOP-3, and it is the one change from the
+original requirement.
+
+Adding emits `line.added` and nothing else. No regeneration is triggered (it
+cannot run — §5.7), no existing line is recomputed, no done state is touched.
+
+The UI must refuse menu changes during an open shop rather than accepting and
+discarding them: an event asserting a menu add or removal against an open shop
+is invalid and is rejected at the point of creation, not filtered out during
+merge. Validation in the merge engine would mean such an event could exist, and
+anything that can exist eventually arrives in an order nobody planned for.
 
 ### 8.6 Closing a shop
 
-One person taps Finish, as the household does today. The app:
+One person taps "Shopping is completed", as the household does today
+(FR-SHOP-4). The app:
 
 1. Forces a full sync.
 2. Shows the FR-SYNC-4.3 gap report **and** the roster's freshness — including
-   "Alex's phone hasn't checked in for 11 minutes".
-3. Lets them finish anyway, with that plainly visible.
+   "Alex's phone hasn't checked in for 11 minutes", and a warning if the closer's
+   own device has not synced recently, since the report they are acting on is
+   computed from their view.
+3. Lets them finish anyway, with all of that plainly visible.
 
-Finishing writes `closed.json`: the compacted final event set, the close event,
-and the version vector it covers. It also appends the trip history record
-(FR-HIST-1) — recipes selected and the close time, nothing more (Round 6).
+**Closing is an event, not a file.** An earlier draft of this document had the
+closing device write a shared `closed.json` — which broke §4's rule that a
+device writes only its own files, and would have let two concurrent closes
+overwrite each other. If the surviving file covered fewer events, devices would
+then have deleted their logs against an incomplete version vector, losing ticks
+silently. §7.5 had already solved this exact problem for snapshots, so closing
+reuses it rather than inventing anything:
 
-Then, and only then, **each device deletes its own log and presence file** —
-after confirming its own events are covered by `closed.json`'s version vector.
-No device ever deletes another's file. The worst case is a stray small file from
-a device that was offline at close, cleaned up when it next opens.
+- Closing emits a `shop.closed` event into the closer's **own** log, carrying
+  the selections and the close time. It is a true-wins register (§5.4), so
+  concurrent closes converge on one close.
+- The compacted final state is written as a **per-device snapshot**, exactly as
+  §7.5 describes.
 
-A device that reconnects after close and finds it has events **not** covered by
-`closed.json` does not discard them and does not silently merge them into a
-finished shop. It uploads them and raises: "3 ticks from this device arrived
-after the shop was closed" — with what they were. Losing them would violate
-FR-SYNC-1; hiding them would violate FR-SYNC-2.
+No shared file, no race, no new mechanism.
+
+**Then each device deletes its own log and presence file** — after confirming
+its own events are covered by the merged close. No device ever deletes another's
+file. The worst case is a stray small file from a device that was offline at
+close, cleaned up when it next opens.
+
+A device that reconnects after close holding events the close did not cover does
+not discard them and does not hide them. It uploads them; they merge normally,
+and the closed shop's line states update. It then raises: "3 ticks from this
+device arrived after the shop was closed" — with what they were.
+
+This is safe only because of a decision made for an unrelated reason: trip
+history records **recipes selected and the close time, nothing more** (Round 6).
+Late-arriving ticks cannot change either, so FR-HIST-1's "never edited after
+being written" is never threatened by them. A trip history that had stored line
+detail would have been invalidated by exactly this case.
+
+**Wait List fulfilment (FR-LIST-7).** At close, every **done** line that
+originated from a Wait List item fulfils that item, removing it from the Wait
+List. Without this, buying something never takes it off the list and it returns
+every week — a silent failure, and the kind P-II says to fix regardless of how
+mundane it looks.
+
+**If nobody closes the shop.** Because the menu is locked (FR-SHOP-3), an
+unfinished shop blocks planning the next one. This failure is accepted under
+P-II — it is loud, and one button fixes it — but only on the condition
+FR-SHOP-4 attaches: wherever the system declines an action because a shop is
+still open, it must **name the open shop and offer the completion action from
+that same place**. A bare refusal would turn a loud failure into a stuck one.
 
 A device whose view is of a shop that has since closed shows "this shop finished
 20 minutes ago" with what changed, rather than continuing to present a list that
@@ -527,14 +773,17 @@ Recipe {
 MenuSelection {
   recipeId, servings,
   status,                          // planned | cooked | carried | flagged
-  addedAt, statusChangedAt, carryCount
+  addedAt, statusChangedAt,
+  carriedInto: Set<shopId>         // NOT a counter — see §5.5, §9.1
 }
 
 WaitListItem { id, ingredientId, note, addedAt }
 
 ShoppingLine {
   shopId, ingredientId,            // identity — see §5.6
-  qty, unit, sources: [...],       // recipe | staple | waitlist | manual
+  qty,                             // DERIVED for generated lines (§5.5);
+                                   // stored only for manual additions
+  unit, sources: [...],            // recipe | staple | waitlist | manual
   done, doneBy, doneAt,
   orphaned                         // its source went away (§5.7)
 }
@@ -546,13 +795,20 @@ FR-STA-2 names this explicitly as a defect class to design out.
 
 ### 9.1 Carry-over (FR-MENU-3, -5, -7)
 
-Status transitions are computed when a new shop is generated, and emitted as
-**explicit events** — never inferred at render time. Inferred status would be
+Status transitions are computed when a new shop is generated — a `draft`-phase
+activity, per §5.7 — and emitted as **explicit events**, never inferred at
+render time. Inferred status would be
 recomputed differently on devices holding different subsets of history, and
 would therefore drift.
 
 - Generating a new shop: each `planned` selection not `cooked` becomes
-  `carried` (`carryCount = 1`).
+  `carried`.
+
+A selection records **the set of shops it has been carried into**, not a
+counter. Two devices generating in draft both compute the same transition; set
+union makes that idempotent, whereas an incremented counter would reach two and
+send the entry straight to `flagged` a week early. This is the "never increment"
+rule of §5.5 in practice, and it is the whole fix for that defect.
 - Generating again: each `carried` selection not `cooked` becomes `flagged`
   (FR-MENU-5). A flagged entry demands an explicit resolution — cook, remove, or
   deliberately re-plan — and says so in the picker until someone acts.
@@ -573,7 +829,9 @@ next shop if still unresolved. This is what closes the URS §10 open question.
 
 ## 10. Shopping list generation and layout
 
-Generation (FR-LIST-1, -2) is a pure function, exercised directly by tests:
+Generation (FR-LIST-1, -2) is a pure function, exercised directly by tests. It
+runs only while the shop is `draft` (§5.7); once the shop is locked its output
+is fixed.
 
 1. For each `planned` menu selection, scale each recipe line by
    `servings / recipe.servings`.
@@ -583,7 +841,9 @@ Generation (FR-LIST-1, -2) is a pure function, exercised directly by tests:
 3. Add every staple ingredient at its staple quantity (FR-STA-1).
 4. Add every open Wait List item.
 5. Sum by `ingredientId` into a single line per ingredient, retaining the list
-   of contributing sources (FR-LIST-2).
+   of contributing sources (FR-LIST-2). This sum is **derived on read from the
+   merged menu selection set**, never stored as a field (§5.5), so two people
+   generating concurrently cannot disagree about it.
 6. Exclude carried-over-only ingredients from the main list; they go to the
    carry-over section (FR-MENU-7.1).
 
@@ -653,6 +913,25 @@ export pipeline. Confirmed wanted in Round 4.
     properties.test.js  the five invariants (§14)
 ```
 
+### 11.1 The merge must reach the screen (FR-SYNC-7)
+
+Every requirement about synchronisation constrains how data moves **between**
+devices. None constrained how it moves from a device's own state to its own
+screen — and a device that has merged a tick correctly but still displays the
+old list is, to the person holding it, identical to one that never received the
+tick. That was a live hole until the failure autopsy found it, and it is a
+plausible root cause of one of the two failures actually reported.
+
+So: **a merge that changes derived state re-renders the affected views, with no
+user action.** Concretely — the store publishes a change; views subscribe; no
+view reads state once at mount and keeps it. There is no pull-to-refresh
+anywhere in this app, and no screen that is only correct just after you opened
+it.
+
+This is not testable by the property suite in §14, which exercises the engine
+and never the screen. It is checked by a scenario test (Stage 3): merge an
+event from a simulated second device and assert the rendered list changed.
+
 `src/core/` is pure: no network, no DOM, no storage, no clock except what is
 passed in. That is what makes the invariants testable by generating millions of
 scenarios in memory (§14). **The merge rules must not leak outside
@@ -671,17 +950,33 @@ state is ephemeral by design.
 
 ### 12.1 What the data looks like
 
-Analysed 2026-09-13. **Referential integrity is perfect**: 5,561 recipe
-ingredient lines across 638 recipes reference 438 distinct ingredient names, and
-every one resolves against the 452-entry master list. Zero orphans. This is a
-clean import, not a salvage.
+Analysed 2026-09-13, in full, with the results in
+[`data/DATA-REVIEW.md`](data/DATA-REVIEW.md) and a corrected source at
+`data/recipes-data.reviewed.json`.
+
+**Referential integrity is perfect**: 5,561 recipe ingredient lines across 638
+recipes reference 438 distinct ingredient names, and every one resolves against
+the 452-entry master list. Zero orphans. This is a clean import, not a salvage.
+
+Two findings from that review bear on the design rather than on the data:
+
+- **Conversions in the source are volumetric, not gravimetric.** Every
+  ingredient converts at 1 cup = 250, whatever it is — the number is millilitres
+  carried into a field labelled grams. For dense ingredients that is near
+  enough; for leafy ones it overstates by up to tenfold. FR-ING-1 requires a
+  real conversion, so either the factors are corrected or those ingredients move
+  to a `qty` shopping unit. **Unresolved — it changes what the household buys,
+  so it is theirs to decide.**
+- **Some ingredients should never reach a shopping list** — `water` is in the
+  master list. The model has no way to express that today. Either a data fix or
+  a "never shop this" flag on the ingredient; see §19 A6.
 
 ### 12.2 Transformations
 
 | Step | Action |
 |---|---|
 | Ingredient identity | Assign a stable `id`; rewrite all 5,561 references from name to id (Round 6). Names become editable display labels — a typo fix can no longer orphan 40 recipe lines |
-| Duplicate names | 452 entries, 450 distinct names. Merge the two duplicates, repointing references |
+| Duplicate names | 452 entries, 450 distinct names — but the duplicates (*Mint*, *Tahini*) are **not** the same thing: one Mint is fresh (Vegetables aisle), the other dried (Spices). They must be disambiguated by hand before the import assigns ids, not merged. See `data/DATA-REVIEW.md` §2 |
 | Aisle casing | Merge `Baking`/`baking`, `Biscuits`/`biscuits`, `Freezer`/`freezer`, `International`/`international`. 26 values → 22 |
 | Quantities | 1,269 of 5,561 are strings, the rest numbers. Coerce to number; fail loudly on anything unparseable |
 | Units | `unit` is the shopping unit; `displayUnit` the cooking unit. Absent on 3,104 lines, meaning cooked and shopped in the same unit — no conversion, which satisfies FR-ING-1 trivially |
@@ -740,9 +1035,14 @@ hold in every one.
 | **P3** | **Addition durability.** A menu selection or Wait List item, once added, is present on every device until an explicit causally-later removal. | FR-SYNC-1, FR-WAIT-2 |
 | **P4** | **Regeneration safety.** Regenerating at any point, any number of times, with any inputs, never changes any existing line's `done` state. | FR-SHOP-2, D2 |
 | **P5** | **Compaction safety.** `merge(compact(E)) == merge(E)` for every event set E. Compaction can never change an outcome. | §5.8 property 2 |
+| **P6** | **Phase integrity.** No removal event of any kind — line, menu selection, or Wait List item — is ever valid against a shop in the `open` phase. Generated scenarios attempt them; the engine must reject every one. | FR-SHOP-3, §5.9 |
+| **P7** | **Single shop.** No sequence of events, under any interleaving, produces two shops simultaneously not `closed`, or forks the shop chain into two successor ids. | SRS §2, §8.1 |
+| **P8** | **Wait List closure.** A Wait List item whose line was **done** at close is absent from the Wait List afterwards; one whose line was not done is still present. | FR-LIST-7, FR-WAIT-2 |
 
 P1 and P4 are the two that matter most, because they are the two failures the
-household actually experienced. A shrinking counterexample from `fast-check` is
+household actually experienced. P6 is the cheapest of the eight and arguably the
+highest-leverage: it verifies the structural claim of §5.9, and if it holds then
+a large share of P1's scenario space is unreachable rather than merely safe. A shrinking counterexample from `fast-check` is
 worth more than any amount of reading the code.
 
 Beyond the properties: worked examples of unit conversion (FR-ING-1), list
@@ -794,12 +1094,20 @@ port didn't break the guarantee.
 | Recipes, ingredients, staples | Indefinite |
 | Wait List | Until fulfilled or removed (FR-WAIT-2) |
 | Menu selections | Until cooked, removed, or resolved from flagged |
-| Open shop logs | Deleted at close, after compaction into `closed.json` (§8.6) |
-| Closed shops | 12 months in `archive/`, then deleted |
-| Trip history | **2 years** (Round 5), recipes and timestamps only |
+| Open shop logs | Deleted at close, after compaction into a per-device snapshot (§8.6) |
+| Closed shop line detail | 12 months in `archive/`, then deleted |
+| `shop.closed` events (trip history) | **2 years** (Round 5) |
 
-Trip history at two years is roughly 104 records of a few hundred bytes —
-negligible, and enough for the FR-REC-4 "how long since we had this?" signal.
+**Trip history is not stored separately.** It is the set of `shop.closed`
+events, each carrying the recipes selected and the close time — which is exactly
+what FR-HIST-1 requires and nothing more (Round 6). The event's immutability
+satisfies "written once, never edited" for free, and removes a shared
+append-only file that two devices could have raced on.
+
+Retention then splits cleanly: the small `shop.closed` events live two years and
+feed the FR-REC-4 "how long since we had this?" signal — roughly 104 records of
+a few hundred bytes. The bulky per-shop line snapshots are archived at twelve
+months and deleted, since nothing reads them.
 
 ### 15.4 Backup
 
@@ -841,17 +1149,23 @@ Deliberately minimal, and appropriate to the deployment:
 | FR-ING-1 conversion | §9, §10 step 2, §12.2, `core/units.js` |
 | FR-ING-2 one group | §9 (`category`), §10.1 |
 | FR-ING-3/4 preference | §9, §10.1 |
-| FR-REC-1/2 recipes | §9, §5.5 (last-save-wins) |
-| FR-REC-3/4 cook signal | §9, §15.3, derived from trip history |
+| FR-REC-1 recipes | §9 |
+| FR-REC-2 anyone may edit | §5.5 (last-save-wins); §6 (an open shop is immune, via the header snapshot) |
+| FR-REC-3 last selected | §9, §15.3 |
+| FR-REC-4 signal in the picker | §9.1, §15.3 |
 | FR-REC-5 no bulk delete | Not implemented — deliberate absence |
 | FR-STA-1/2 staples | §9 (property of ingredient), §10 step 3 |
-| FR-MENU-1–6 lifecycle | §9.1 |
+| FR-MENU-1–6 lifecycle | §9.1; FR-MENU-1 and FR-MENU-6 bounded by §5.9, §8.1 |
 | FR-MENU-7 carry-over section | §9.1, §10 step 6 |
 | FR-WAIT-1/2 Wait List | §9, §5.5 (present-wins) |
-| FR-LIST-1–4 generation | §10 |
+| FR-LIST-1–3 generation | §10 |
+| FR-LIST-4 removal fulfils Wait List item | §5.7 |
 | FR-LIST-5 done state | §5.4 |
 | FR-LIST-6 grouping | §10.1 |
+| FR-LIST-7 Wait List fulfilled by purchase | §8.6, §14 P8 |
 | FR-SHOP-1 add mid-shop | §8.5, §5.7 |
+| FR-SHOP-3 menu lock | §5.7, §5.9, §8.1, §8.5, §14 P6 |
+| FR-SHOP-4 explicit completion | §8.6 |
 | FR-SHOP-2 no side-effect reset | §5.7, §14 P4 |
 | **FR-SYNC-1 tick durability** | **§5.4, §5.8, §14 P1** |
 | FR-SYNC-2 visible staleness | §8.2, §8.3 |
@@ -859,7 +1173,9 @@ Deliberately minimal, and appropriate to the deployment:
 | FR-SYNC-4 reconcile | §8.4 |
 | FR-SYNC-5 transport unconstrained | §15.2 |
 | FR-SYNC-6 brief offline | §7.1, §7.4 |
-| FR-HIST-1/2 trip history | §8.6, §15.3 |
+| FR-SYNC-7 display currency | §11.1; `FAILURE-AUTOPSY.md` F2(c) |
+| FR-HIST-1 immutable trip record | §8.6, §15.3 (the `shop.closed` event itself) |
+| FR-HIST-2 signal derived from history | §15.3 |
 | NFR-1 no roles | §3.3 |
 | NFR-2 no notifications | §16 |
 | NFR-3 one household | §3.2 |
@@ -953,6 +1269,27 @@ Architectural, needing an answer before or during implementation:
   Both want tuning against a real shop; they are configuration, not design.
 - **A3.** Closed-shop archive retention assumed at 12 months (§15.3). Trip
   history at 2 years is confirmed; this one is not.
+- **A4.** FR-SHOP-3 gives no way out of a shop locked against the wrong menu:
+  there is no unlock and no abandon. Two candidates, both safe under §5.9
+  because both are confined to the state where no tick exists: **unlock while
+  the shop has zero ticks**, or an explicit **abandon this shop** action.
+  Neither is specified. Worth settling before implementation, because "we
+  locked it too early" is a thing that will happen. Note this is *not* the same
+  as the unfinished-shop case, which is resolved (§8.6, FR-SHOP-4).
+- **A5.** Related: nothing forces anyone to tap "start shopping". If the
+  household simply begins ticking, either the app must treat the first tick as
+  an implicit lock, or ticking must be unavailable until the shop is open. The
+  second is more predictable; the first is kinder. Not yet decided.
+- **A6.** The ingredient model has no way to say "this is never bought".
+  `water` is in the master list, and recipe lines exist with a quantity of zero
+  that read as "to taste" or "to serve". Both need somewhere to live: a
+  never-shop flag on the ingredient, and a quantity-less recipe line that does
+  not reach the shopping list. Neither is in `SRS.md`. See
+  `data/DATA-REVIEW.md` §3 and §7.
+- **A7.** FR-ING-1 assumes one conversion per (ingredient, cooking unit). The
+  source data holds several for 107 pairs — rounding noise, not disagreement.
+  The migration resolves it by taking the median implied factor, which is
+  recorded here so the choice is visible rather than buried in a script.
 
 Carried forward from `SRS.md` §9, unchanged and not blocking:
 

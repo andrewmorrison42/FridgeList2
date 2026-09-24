@@ -10,6 +10,7 @@ import { toShoppingUnit, scaleForServings, formatQuantity } from '../src/core/un
 import { selections, carryOverTransitions, PLANNED, CARRIED, FLAGGED, COOKED } from '../src/core/carryover.js';
 import { generate, groupForDisplay } from '../src/core/generate.js';
 import { currentShop, nextShopId, permissions, explainRefusal, GENESIS_SHOP } from '../src/core/shop.js';
+import { shuffle } from './harness.js';
 
 const flour  = { id: 'flour',  name: 'Flour (Plain)', shoppingUnit: 'g',  category: 'Pantry', aisle: 'Baking', conversions: { cup: 250 } };
 const basil  = { id: 'basil',  name: 'Basil',         shoppingUnit: 'g',  category: 'Fruit and Vegetables', aisle: 'Vegetables', conversions: { cup: 250 } };
@@ -60,24 +61,67 @@ describe('shop chain (§8.1, P7)', () => {
     expect(nextShopId('shop-0099')).toBe('shop-0100');
   });
 
-  it('exactly one shop is not closed, under any interleaving', () => {
-    fc.assert(fc.property(fc.array(fc.nat(3), { maxLength: 12 }), (devIdx) => {
-      const devices = [0, 1, 2, 3].map((i) => createDevice(`d${i}`));
-      let events = [];
-      for (const i of devIdx) {
-        const d = devices[i % devices.length];
-        d.observe(events);
-        const { id, phase } = currentShop(events);
-        // Everyone races to lock, then to close. Two people doing the same
-        // thing at once must produce one shop, not two.
-        events = [...events, phase === 'draft'
-          ? d.emit('shop.locked', { shopId: id, locked: true }, 'draft')
-          : d.emit('shop.closed', { shopId: id, closed: true, nextShopId: nextShopId(id) }, 'open')];
-        const open = [...new Set(events.map((e) => e.payload.shopId))]
-          .filter((s) => currentShop(events).id === s || false);
-        expect(open.length).toBeLessThanOrEqual(1);
+  // P7, rewritten in review #4. The first version filtered the set of shop ids
+  // down to those equal to currentShop().id and asserted at most one remained —
+  // true by construction, so it passed against a currentShop() that never
+  // advanced at all. It also let every device see every event before acting,
+  // so there was no concurrency to test. This version gives each device its
+  // own partial view, and checks currentShop() against an independent model
+  // built from the raw events, never from the code under test.
+  it('P7 — one shop at a time, and the chain never forks, under real concurrency', () => {
+    const opArb = fc.oneof(
+      fc.record({ kind: fc.constant('act'),  dev: fc.nat(3) }),
+      fc.record({ kind: fc.constant('sync'), dev: fc.nat(3), from: fc.nat(3) }),
+    );
+    fc.assert(fc.property(fc.integer({ min: 2, max: 4 }), fc.array(opArb, { maxLength: 40 }), (n, ops) => {
+      const devices = Array.from({ length: n }, (_, i) => createDevice(`d${i}`));
+      const logs = devices.map(() => []);
+      for (const op of ops) {
+        const i = op.dev % n;
+        if (op.kind === 'sync') {
+          const j = op.from % n;
+          const have = new Set(logs[i].map((e) => e.id));
+          for (const e of logs[j]) if (!have.has(e.id)) logs[i].push(e);
+          devices[i].observe(logs[i]);
+          continue;
+        }
+        // Each device acts on its own — possibly stale — view: lock the
+        // current shop if it is being planned, close it if it is open.
+        const { id, phase } = currentShop(logs[i]);
+        if (phase === 'draft') logs[i].push(devices[i].emit('shop.locked', { shopId: id, locked: true }, 'draft'));
+        else if (phase === 'open') logs[i].push(devices[i].emit('shop.closed', { shopId: id, closed: true, nextShopId: nextShopId(id) }, 'open'));
       }
-    }), { numRuns: 300 });
+
+      const all = [...new Map(logs.flat().map((e) => [e.id, e])).values()];
+
+      // The independent model: read the raw events, not shopPhases().
+      const closed = new Set(all.filter((e) => e.type === 'shop.closed').map((e) => e.payload.shopId));
+      const locked = new Set(all.filter((e) => e.type === 'shop.locked').map((e) => e.payload.shopId));
+      let expected = GENESIS_SHOP;
+      while (closed.has(expected)) expected = nextShopId(expected);
+
+      // 1. Every view agrees with the model about which shop is current —
+      //    whatever order the events arrive in, since phones receive them in
+      //    any order. (An order-dependent phase rule survived the first
+      //    version of this test for exactly that reason.)
+      expect(currentShop(all).id).toBe(expected);
+      for (const seed of [1, 7, 99]) expect(currentShop(shuffle(all, seed)).id).toBe(expected);
+      for (const log of logs) {
+        const c = new Set(log.filter((e) => e.type === 'shop.closed').map((e) => e.payload.shopId));
+        let exp = GENESIS_SHOP;
+        while (c.has(exp)) exp = nextShopId(exp);
+        expect(currentShop(log).id).toBe(exp);
+      }
+      // 2. At most one shop is open: locked and not yet closed.
+      expect([...locked].filter((s) => !closed.has(s)).length).toBeLessThanOrEqual(1);
+      // 3. Closed shops are a contiguous run from genesis — no gaps.
+      let walk = GENESIS_SHOP;
+      for (let k = 0; k < closed.size; k++) { expect(closed.has(walk)).toBe(true); walk = nextShopId(walk); }
+      // 4. The chain never forks: every close of a shop names the same successor.
+      for (const e of all.filter((x) => x.type === 'shop.closed')) {
+        expect(e.payload.nextShopId).toBe(nextShopId(e.payload.shopId));
+      }
+    }), { numRuns: 500 });
   });
 
   it('refusing an action names the shop and offers the remedy (FR-SHOP-4)', () => {

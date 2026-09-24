@@ -101,7 +101,7 @@ describe('two devices through shared storage', () => {
   it('events go to the right file: shop-scoped and long-lived are separate', () => {
     const d = createDevice('d0');
     const tickEvent = d.emit('line.done', { shopId: 's1', ingredientId: 'x', done: true }, 'open');
-    const menuEvent = d.emit('menu.selection', { recipeId: 'r', present: true }, 'draft');
+    const menuEvent = d.emit('menu.selection', { recipeId: 'r', plannedFor: 'shop-0001', present: true }, 'draft');
     expect(pathFor(tickEvent, 'd0')).toBe('shops/s1/log/d0.jsonl');
     expect(pathFor(menuEvent, 'd0')).toBe('state/log/d0.jsonl');
   });

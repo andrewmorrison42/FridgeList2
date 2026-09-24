@@ -94,7 +94,7 @@ export function permissions(events) {
  * the shop does not change what the shopper reads.
  */
 export function lockEvent(device, shopId, lines, events) {
-  const planned = [...selections(events).values()]
+  const planned = [...selections(events, shopId).values()]
     .filter((s) => s.status === PLANNED).map((s) => s.recipeId).sort();
   return device.emit('shop.locked', {
     shopId, locked: true, selections: planned,

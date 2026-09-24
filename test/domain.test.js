@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { createDevice } from '../src/core/events.js';
 import { toShoppingUnit, scaleForServings, formatQuantity } from '../src/core/units.js';
-import { selections, carryOverTransitions, PLANNED, CARRIED, FLAGGED, COOKED } from '../src/core/carryover.js';
+import { selections, PLANNED, CARRIED, FLAGGED, COOKED } from '../src/core/carryover.js';
 import { generate, groupForDisplay } from '../src/core/generate.js';
 import { currentShop, nextShopId, permissions, explainRefusal, GENESIS_SHOP } from '../src/core/shop.js';
 import { shuffle } from './harness.js';
@@ -135,44 +135,41 @@ describe('shop chain (§8.1, P7)', () => {
 });
 
 describe('carry-over (FR-MENU-3 to FR-MENU-5, §9.1)', () => {
+  // Derived from the shop chain: how many shops have closed since the meal was
+  // planned. There are no carry-over events any more, so there is nothing to
+  // emit at the wrong moment and nothing two devices could double-count.
   const plan = (device, recipeId, shopId, servings = 4) =>
     device.emit('menu.selection', { recipeId, present: true, servings, plannedFor: shopId }, 'draft');
+  const statusIn = (events, recipeId, shopId) =>
+    [...selections(events, shopId).values()].find((s) => s.recipeId === recipeId)?.status;
 
-  it('an uncooked selection carries into the next shop', () => {
-    const d = createDevice('a');
-    let events = [plan(d, 'cake', 'shop-0001')];
-    expect(selections(events).get('cake').status).toBe(PLANNED);
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', d)];
-    expect(selections(events).get('cake').status).toBe(CARRIED);
+  it('an uncooked selection is carried in the next shop', () => {
+    const events = [plan(createDevice('a'), 'cake', 'shop-0001')];
+    expect(statusIn(events, 'cake', 'shop-0001')).toBe(PLANNED);
+    expect(statusIn(events, 'cake', 'shop-0002')).toBe(CARRIED);
   });
 
   it('carries at most once, then demands a decision', () => {
-    const d = createDevice('a');
-    let events = [plan(d, 'cake', 'shop-0001')];
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', d)];
-    events = [...events, ...carryOverTransitions(events, 'shop-0003', d)];
-    expect(selections(events).get('cake').status).toBe(FLAGGED);
+    const events = [plan(createDevice('a'), 'cake', 'shop-0001')];
+    expect(statusIn(events, 'cake', 'shop-0003')).toBe(FLAGGED);
   });
 
-  it('a cooked selection never carries', () => {
+  it('a meal cooked in an earlier week has left the menu', () => {
     const d = createDevice('a');
-    let events = [plan(d, 'cake', 'shop-0001'),
-                  d.emit('menu.cooked', { recipeId: 'cake', cooked: true }, 'draft')];
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', d)];
-    expect(selections(events).get('cake').status).toBe(COOKED);
+    const events = [plan(d, 'cake', 'shop-0001'),
+      d.emit('menu.cooked', { recipeId: 'cake', plannedFor: 'shop-0001', cooked: true, cookedIn: 'shop-0001' }, 'draft')];
+    expect(statusIn(events, 'cake', 'shop-0001')).toBe(COOKED);
+    expect(statusIn(events, 'cake', 'shop-0002')).toBe(undefined);
   });
 
-  it('two devices computing the same transition do not double-count', () => {
-    // The reason carriedInto is a set and not a counter: an increment applied
-    // twice would flag the entry a week early.
+  it('the same plan made on two devices is one entry, not two', () => {
     const a = createDevice('a');
     const b = createDevice('b');
-    let events = [plan(a, 'cake', 'shop-0001')];
-    b.observe(events);
-    const fromA = carryOverTransitions(events, 'shop-0002', a);
-    const fromB = carryOverTransitions(events, 'shop-0002', b);
-    events = [...events, ...fromA, ...fromB];
-    expect(selections(events).get('cake').status).toBe(CARRIED);   // not FLAGGED
+    const events = [plan(a, 'cake', 'shop-0001', 4), plan(b, 'cake', 'shop-0001', 6)];
+    const sels = [...selections(events, 'shop-0001').values()];
+    expect(sels).toHaveLength(1);
+    // ...and every device agrees on its servings, whatever order they arrived in.
+    expect([...selections([...events].reverse(), 'shop-0001').values()][0].servings).toBe(sels[0].servings);
   });
 });
 
@@ -207,7 +204,6 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
   it('a carried-over entry goes to the check-before-buying section, not the list', () => {
     const c = createDevice('c');
     let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
     const { lines, carryOver } = gen(library, { events, shopId: 'shop-0002' });
     expect(lines.map((l) => l.ingredientId)).toEqual(['milk']);        // staple only
     expect(carryOver.map((l) => l.ingredientId).sort()).toEqual(['basil', 'capsicum']);
@@ -217,7 +213,6 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
     // FR-MENU-7.3 — there is nothing to check about something already on the list.
     const c = createDevice('c');
     let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
     events = [...events, c.emit('menu.selection', { recipeId: 'pesto2', present: true, servings: 4, plannedFor: 'shop-0002' }, 'draft')];
     const lib = {
       ...library,
@@ -231,7 +226,6 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
   it('dismissing an item affects only this shop', () => {
     const c = createDevice('c');
     let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
-    events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
     events = [...events, c.emit('carryover.dismissed', { shopId: 'shop-0002', ingredientId: 'basil', dismissed: true }, 'draft')];
     const { carryOver } = gen(library, { events, shopId: 'shop-0002' });
     expect(carryOver.map((l) => l.ingredientId)).toEqual(['capsicum']);

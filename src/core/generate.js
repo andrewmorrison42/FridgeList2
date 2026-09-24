@@ -83,7 +83,7 @@ export function generate({ events, state, shopId }) {
   const phase = shopPhases(state).get(shopId) ?? 'draft';
   const flags = shopFlags(state, shopId);
   const waitList = openWaitList(state);
-  const sels = [...selections(state).values()];
+  const sels = [...selections(state, shopId).values()];
   const problems = [];
 
   const main = new Map();

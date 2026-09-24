@@ -59,9 +59,9 @@ describe('the list, as a person sees it (review #2)', () => {
 
   it('"Still need it" moves a carried-over item onto the list and out of the check section', () => {
     const d = createDevice('a');
+    // Planned for the shop before this one and never cooked: carried over.
     let ev = [...libraryEvents(d),
-      d.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0000' }, 'draft'),
-      d.emit('menu.carried', { recipeId: 'pesto', shopId: S, carried: true }, 'draft')];
+      d.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0000' }, 'draft')];
     expect(ids(generate({ events: ev, shopId: S }).carryOver)).toEqual(['basil']);
     ev.push(d.emit('line.added', { shopId: S, ingredientId: 'basil', present: true }, 'draft'));
     const after = generate({ events: ev, shopId: S });

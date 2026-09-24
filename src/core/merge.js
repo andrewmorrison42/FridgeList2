@@ -20,7 +20,6 @@ const FIELD = {
   'line.suppressed': 'suppressed',
   'menu.selection': 'present',
   'menu.cooked': 'cooked',
-  'menu.carried': 'carried',
   'waitlist.item': 'present',
   'carryover.dismissed': 'dismissed',
   'recipe.upsert': 'recipe',
@@ -51,7 +50,7 @@ TRUE_WINS.delete('history.imported');
 // ---------------------------------------------------------------------------
 
 /** Deterministic ordering for last-save-wins. Every device computes the same. */
-function lwwCompare(a, b) {
+export function lwwCompare(a, b) {
   if (a.ts !== b.ts) return a.ts < b.ts ? -1 : 1;
   if (a.dev !== b.dev) return a.dev < b.dev ? -1 : 1;
   return a.seq - b.seq;

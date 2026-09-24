@@ -16,7 +16,6 @@ export const PHASES = ['draft', 'open', 'closed'];
 const PERMITTED = {
   'menu.selection':  ['draft'],           // add AND remove — locked by FR-SHOP-3
   'menu.cooked':     ['draft', 'open'],   // not a menu change (FR-MENU-2)
-  'menu.carried':    ['draft'],           // set membership, not a counter (§9.1)
   'line.added':      ['draft', 'open'],   // FR-SHOP-1
   'line.suppressed': ['draft'],           // the pantry check (FR-LIST-3)
   'line.done':       ['open'],            // FR-LIST-5

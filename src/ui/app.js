@@ -9,7 +9,7 @@
 import { createStore } from '../core/store.js';
 import { currentShop, nextShopId, permissions, explainRefusal, lockEvent } from '../core/shop.js';
 import { library, cookHistory } from '../core/library.js';
-import { selections, carryOverTransitions } from '../core/carryover.js';
+import { selections } from '../core/carryover.js';
 import { generate, openWaitList } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { K } from '../core/keys.js';
@@ -85,7 +85,7 @@ export async function createApp({ storage } = {}) {
     shop: memo(() => currentShop(store.state)),
     can: memo(() => permissions(store.state)),
     library: memo(() => library(store.state)),
-    selections: memo(() => selections(store.state)),
+    selections: memo(() => selections(store.state, currentShop(store.state).id)),
     history: memo(() => cookHistory(store.state)),
     list: memo(() => generate({ state: store.state, shopId: currentShop(store.state).id })),
     waitList: memo(() => openWaitList(store.state)),
@@ -121,20 +121,32 @@ export async function createApp({ storage } = {}) {
 
     // -- actions ------------------------------------------------------------
 
+    /**
+     * Plan a recipe for this shop. If it is already on the menu from an
+     * earlier week and was never cooked — carried or flagged — planning it
+     * again is the "deliberately re-plan it" of FR-MENU-5: the old entry is
+     * settled and one fresh entry stands, rather than two.
+     */
     planRecipe(recipeId, servings) {
       const { id, phase } = currentShop(store.state);
-      return record(device.emit('menu.selection',
-        { recipeId, present: true, servings, plannedFor: id }, phase));
+      const events = [];
+      for (const sel of selections(store.state, id).values()) {
+        if (sel.recipeId === recipeId && sel.plannedFor !== id && !sel.cooked) {
+          events.push(device.emit('menu.selection', { recipeId, plannedFor: sel.plannedFor, present: false }, phase));
+        }
+      }
+      events.push(device.emit('menu.selection', { recipeId, plannedFor: id, present: true, servings }, phase));
+      return record(events);
     },
 
-    unplanRecipe(recipeId) {
+    unplanRecipe(recipeId, plannedFor) {
       const { phase } = currentShop(store.state);
-      return record(device.emit('menu.selection', { recipeId, present: false }, phase));
+      return record(device.emit('menu.selection', { recipeId, plannedFor, present: false }, phase));
     },
 
-    markCooked(recipeId, cooked = true) {
-      const { phase } = currentShop(store.state);
-      return record(device.emit('menu.cooked', { recipeId, cooked }, phase));
+    markCooked(recipeId, plannedFor, cooked = true) {
+      const { id, phase } = currentShop(store.state);
+      return record(device.emit('menu.cooked', { recipeId, plannedFor, cooked, cookedIn: id }, phase));
     },
 
     addWaitList(ingredientId, note = null) {
@@ -176,11 +188,8 @@ export async function createApp({ storage } = {}) {
       return record(device.emit('carryover.dismissed', { shopId: id, ingredientId, dismissed: true }, phase));
     },
 
-    /** Generate: carry-over transitions, then the proposal. Draft only (§5.7). */
+    /** The proposal. Carry-over is derived, so there is nothing to emit first (§9.1). */
     generateList() {
-      const { id } = currentShop(store.state);
-      const transitions = carryOverTransitions(store.state, id, device);
-      if (transitions.length) record(transitions);
       return this.list();
     },
 
@@ -197,7 +206,7 @@ export async function createApp({ storage } = {}) {
     /** "Shopping is completed" (FR-SHOP-4). Writes the trip record with it. */
     async closeShop() {
       const { id } = currentShop(store.state);
-      const chosen = [...selections(store.state).values()].map((s) => s.recipeId);
+      const chosen = [...selections(store.state, id).values()].map((s) => s.recipeId);
       const ev = device.emit('shop.closed', {
         shopId: id, closed: true, nextShopId: nextShopId(id),
         selections: chosen, closedAt: new Date().toISOString(),

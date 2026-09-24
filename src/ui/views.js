@@ -24,7 +24,8 @@ export function planView(app, { onAction }) {
   const history = app.history;
   const search = app.ui.search ?? '';
 
-  const chosen = [...sels.values()].sort((a, b) => a.recipeId.localeCompare(b.recipeId));
+  const chosen = [...sels.values()].sort((a, b) =>
+    (recipes.get(a.recipeId)?.name ?? a.recipeId).localeCompare(recipes.get(b.recipeId)?.name ?? b.recipeId));
   const matches = [...recipes.values()]
     .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -46,8 +47,8 @@ export function planView(app, { onAction }) {
               'Cook it, remove it, or plan it again'),
           ),
           h('span', { class: 'servings' }, `${sel.servings}`),
-          sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId) }, 'Cooked'),
-          h('button', { onClick: () => onAction('unplan', sel.recipeId) }, 'Remove'),
+          sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked'),
+          h('button', { onClick: () => onAction('unplan', sel.recipeId, sel.plannedFor) }, 'Remove'),
         );
       }),
     ),

@@ -15,6 +15,7 @@ const SEP = ':';
  * so an ambiguous key is unrepresentable rather than mis-parsed later (P-I).
  */
 function seg(value, name) {
+  if (value === null || value === undefined) throw new Error(`${name} is missing, so no key can be made`);
   const s = String(value);
   if (!s || s.includes(SEP)) throw new Error(`${name} "${s}" cannot be used in a key`);
   return s;
@@ -25,9 +26,11 @@ export const K = {
   lineDone:           (shopId, ingredientId) => `line:${seg(shopId, 'shopId')}:${seg(ingredientId, 'ingredientId')}:done`,
   linePresent:        (shopId, ingredientId) => `line:${seg(shopId, 'shopId')}:${seg(ingredientId, 'ingredientId')}:present`,
   lineSuppressed:     (shopId, ingredientId) => `line:${seg(shopId, 'shopId')}:${seg(ingredientId, 'ingredientId')}:suppressed`,
-  menuPresent:        (recipeId) => `menu:${seg(recipeId, 'recipeId')}:present`,
-  menuCooked:         (recipeId) => `menu:${seg(recipeId, 'recipeId')}:cooked`,
-  menuCarried:        (recipeId, shopId) => `menu:${seg(recipeId, 'recipeId')}:carried:${seg(shopId, 'shopId')}`,
+  // A menu selection is *this recipe, planned for this shop* — not the recipe
+  // alone. Keyed by recipe alone, a "cooked" flag from week 1 stuck to the
+  // recipe forever and a favourite could never be planned again (glitch #2).
+  menuPresent:        (recipeId, plannedFor) => `menu:${seg(recipeId, 'recipeId')}:${seg(plannedFor, 'plannedFor')}:present`,
+  menuCooked:         (recipeId, plannedFor) => `menu:${seg(recipeId, 'recipeId')}:${seg(plannedFor, 'plannedFor')}:cooked`,
   waitlistPresent:    (itemId) => `waitlist:${seg(itemId, 'itemId')}:present`,
   carryoverDismissed: (shopId, ingredientId) => `carryover:${seg(shopId, 'shopId')}:${seg(ingredientId, 'ingredientId')}`,
   shopLocked:         (shopId) => `shop:${seg(shopId, 'shopId')}:locked`,
@@ -46,9 +49,8 @@ const PATTERNS = [
   ['lineDone',           /^line:([^:]+):([^:]+):done$/,       ['shopId', 'ingredientId']],
   ['linePresent',        /^line:([^:]+):([^:]+):present$/,    ['shopId', 'ingredientId']],
   ['lineSuppressed',     /^line:([^:]+):([^:]+):suppressed$/, ['shopId', 'ingredientId']],
-  ['menuPresent',        /^menu:([^:]+):present$/,            ['recipeId']],
-  ['menuCooked',         /^menu:([^:]+):cooked$/,             ['recipeId']],
-  ['menuCarried',        /^menu:([^:]+):carried:([^:]+)$/,    ['recipeId', 'shopId']],
+  ['menuPresent',        /^menu:([^:]+):([^:]+):present$/,    ['recipeId', 'plannedFor']],
+  ['menuCooked',         /^menu:([^:]+):([^:]+):cooked$/,     ['recipeId', 'plannedFor']],
   ['waitlistPresent',    /^waitlist:([^:]+):present$/,        ['itemId']],
   ['carryoverDismissed', /^carryover:([^:]+):([^:]+)$/,       ['shopId', 'ingredientId']],
   ['shopLocked',         /^shop:([^:]+):locked$/,             ['shopId']],
@@ -78,11 +80,8 @@ export function keyOf(event) {
     case 'line.done':           return K.lineDone(p.shopId, p.ingredientId);
     case 'line.added':          return K.linePresent(p.shopId, p.ingredientId);
     case 'line.suppressed':     return K.lineSuppressed(p.shopId, p.ingredientId);
-    case 'menu.selection':      return K.menuPresent(p.recipeId);
-    case 'menu.cooked':         return K.menuCooked(p.recipeId);
-    // One register per (selection, shop) rather than one counter per selection:
-    // set membership is idempotent where an increment is not. §5.5, §9.1.
-    case 'menu.carried':        return K.menuCarried(p.recipeId, p.shopId);
+    case 'menu.selection':      return K.menuPresent(p.recipeId, p.plannedFor);
+    case 'menu.cooked':         return K.menuCooked(p.recipeId, p.plannedFor);
     case 'waitlist.item':       return K.waitlistPresent(p.itemId);
     case 'carryover.dismissed': return K.carryoverDismissed(p.shopId, p.ingredientId);
     case 'shop.locked':         return K.shopLocked(p.shopId);

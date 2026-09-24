@@ -18,8 +18,8 @@ describe('keys.js (review #3)', () => {
   it('every builder round-trips through parseKey', () => {
     const ARGS = {
       lineDone: ['shopId', 'ingredientId'], linePresent: ['shopId', 'ingredientId'],
-      lineSuppressed: ['shopId', 'ingredientId'], menuPresent: ['recipeId'], menuCooked: ['recipeId'],
-      menuCarried: ['recipeId', 'shopId'], waitlistPresent: ['itemId'],
+      lineSuppressed: ['shopId', 'ingredientId'], menuPresent: ['recipeId', 'plannedFor'],
+      menuCooked: ['recipeId', 'plannedFor'], waitlistPresent: ['itemId'],
       carryoverDismissed: ['shopId', 'ingredientId'], shopLocked: ['shopId'], shopClosed: ['shopId'],
       recipe: ['recipeId'], ingredient: ['ingredientId'], historyImported: [],
     };
@@ -36,7 +36,7 @@ describe('keys.js (review #3)', () => {
     const d = createDevice('d');
     const cases = [
       [d.emit('line.done', { shopId: 's1', ingredientId: 'flour', done: true }, 'open'), { kind: 'lineDone', shopId: 's1', ingredientId: 'flour' }],
-      [d.emit('menu.carried', { recipeId: 'cake', shopId: 's2', carried: true }, 'draft'), { kind: 'menuCarried', recipeId: 'cake', shopId: 's2' }],
+      [d.emit('menu.selection', { recipeId: 'cake', plannedFor: 's2', present: true }, 'draft'), { kind: 'menuPresent', recipeId: 'cake', plannedFor: 's2' }],
       [d.emit('waitlist.item', { itemId: 'w1', ingredientId: 'mayo', present: true }, 'open'), { kind: 'waitlistPresent', itemId: 'w1' }],
     ];
     for (const [event, fields] of cases) expect(parseKey(keyOf(event))).toEqual(fields);

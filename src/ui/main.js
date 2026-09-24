@@ -48,8 +48,8 @@ export async function mount(root, { storage } = {}) {
       case 'recipeSearch': app.ui.recipeSearch = args[0]; break;
       case 'openRecipe': app.ui.openRecipe = args[0]; break;
       case 'plan':       app.planRecipe(args[0], args[1]); break;
-      case 'unplan':     app.unplanRecipe(args[0]); break;
-      case 'cooked':     app.markCooked(args[0]); break;
+      case 'unplan':     app.unplanRecipe(args[0], args[1]); break;
+      case 'cooked':     app.markCooked(args[0], args[1]); break;
       case 'addWait':    app.addWaitList(args[0]); app.ui.waitSearch = ''; break;
       case 'removeWait': app.removeWaitList(args[0]); break;
       case 'suppress':   app.suppressLine(args[0]); break;

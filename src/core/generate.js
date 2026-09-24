@@ -14,16 +14,17 @@ import { selections, PLANNED, CARRIED, FLAGGED } from './carryover.js';
 import { stateOf } from './merge.js';
 import { shopPhases } from './shop.js';
 import { library as libraryOf } from './library.js';
+import { K, parseKey } from './keys.js';
 
 /** The open Wait List: present items, oldest first. FR-WAIT-1/2. */
 export function openWaitList(events) {
   const state = stateOf(events);
   const out = [];
   for (const [key, reg] of state) {
-    const m = /^waitlist:(.+):present$/.exec(key);
-    if (!m || reg.value !== true) continue;
+    const k = parseKey(key);
+    if (k?.kind !== 'waitlistPresent' || reg.value !== true) continue;
     const p = reg.by[0]?.payload ?? {};
-    out.push({ id: m[1], ingredientId: p.ingredientId, note: p.note ?? null, qty: p.qty ?? null });
+    out.push({ id: k.itemId, ingredientId: p.ingredientId, note: p.note ?? null, qty: p.qty ?? null });
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -35,10 +36,11 @@ function shopFlags(state, shopId) {
   const added = new Set();
   for (const [key, reg] of state) {
     if (reg.value !== true) continue;
-    let m;
-    if ((m = /^line:([^:]+):(.+):suppressed$/.exec(key)) && m[1] === shopId) suppressed.add(m[2]);
-    else if ((m = /^line:([^:]+):(.+):present$/.exec(key)) && m[1] === shopId) added.add(m[2]);
-    else if ((m = /^carryover:([^:]+):(.+)$/.exec(key)) && m[1] === shopId) dismissed.add(m[2]);
+    const k = parseKey(key);
+    if (!k || k.shopId !== shopId) continue;
+    if (k.kind === 'lineSuppressed') suppressed.add(k.ingredientId);
+    else if (k.kind === 'linePresent') added.add(k.ingredientId);
+    else if (k.kind === 'carryoverDismissed') dismissed.add(k.ingredientId);
   }
   return { suppressed, dismissed, added };
 }
@@ -50,7 +52,7 @@ function shopFlags(state, shopId) {
  * the other. Where both hold a line, the larger quantity stands.
  */
 function lockedSnapshot(state, shopId) {
-  const reg = state.get(`shop:${shopId}:locked`);
+  const reg = state.get(K.shopLocked(shopId));
   const lines = new Map();
   const planned = new Set();
   const waitItems = new Set();

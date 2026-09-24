@@ -5,39 +5,13 @@
 // is watching. ARCHITECTURE.md §5.4, §5.5, §11.
 
 import { maximal } from './events.js';
+import { K, keyOf, tryKeyOf, parseKey } from './keys.js';
+
+export { keyOf };
 
 // ---------------------------------------------------------------------------
-// Keying: which thing does an event talk about?
+// Keying lives in keys.js — both building keys and reading them back.
 // ---------------------------------------------------------------------------
-
-// A line is identified by (shopId, ingredientId) — never by name, position, or
-// a per-device id. Two devices adding the same ingredient produce events about
-// the *same* line, which merge, rather than two lines needing de-duplication
-// later, which would have to decide whose tick to keep. §5.6.
-const lineKey = (p) => `line:${p.shopId}:${p.ingredientId}`;
-
-export function keyOf(event) {
-  const p = event.payload;
-  switch (event.type) {
-    case 'line.done':      return `${lineKey(p)}:done`;
-    case 'line.added':     return `${lineKey(p)}:present`;
-    case 'line.suppressed':return `${lineKey(p)}:suppressed`;
-    case 'menu.selection': return `menu:${p.recipeId}:present`;
-    case 'menu.cooked':    return `menu:${p.recipeId}:cooked`;
-    // One register per (selection, shop) rather than one counter per selection.
-    // Two devices computing the same transition assert the same fact, and set
-    // union is idempotent where an increment would reach two and flag the
-    // entry a week early. §5.5, §9.1.
-    case 'menu.carried':   return `menu:${p.recipeId}:carried:${p.shopId}`;
-    case 'waitlist.item':  return `waitlist:${p.itemId}:present`;
-    case 'carryover.dismissed': return `carryover:${p.shopId}:${p.ingredientId}`;
-    case 'recipe.upsert':     return `recipe:${p.recipeId}`;
-    case 'ingredient.upsert': return `ingredient:${p.ingredientId}`;
-    case 'shop.locked':    return `shop:${p.shopId}:locked`;
-    case 'shop.closed':    return `shop:${p.shopId}:closed`;
-    default: throw new Error(`unkeyed event type: ${event.type}`);
-  }
-}
 
 /** Which payload field carries this event's value. */
 const FIELD = {
@@ -113,11 +87,20 @@ export function resolve(events, { trueWins = true } = {}) {
   return { value: winner.payload[field], conflict, by: [winner] };
 }
 
-/** Group events by the register they address. */
+/**
+ * Group events by the register they address.
+ *
+ * An event that cannot be keyed is skipped, never fatal. Phones update at
+ * different times: a phone on a newer version may emit an event type this one
+ * has never heard of, and that must not take down this phone's whole list.
+ * Such events are kept in the log and synced onward untouched — only this
+ * version declines to interpret them.
+ */
 export function groupByKey(events) {
   const out = new Map();
   for (const e of events) {
-    const k = keyOf(e);
+    const k = tryKeyOf(e);
+    if (k === null) continue;
     if (!out.has(k)) out.set(k, []);
     out.get(k).push(e);
   }
@@ -150,7 +133,7 @@ export const stateOf = (x) => (x instanceof Map ? x : merge(x));
 
 /** Convenience: is this line ticked? */
 export function isDone(events, shopId, ingredientId) {
-  const r = merge(events).get(`line:${shopId}:${ingredientId}:done`);
+  const r = stateOf(events).get(K.lineDone(shopId, ingredientId));
   return r?.value === true;
 }
 
@@ -161,7 +144,7 @@ export function isDone(events, shopId, ingredientId) {
 export function doubleTicked(events) {
   const out = [];
   for (const [key, group] of groupByKey(events)) {
-    if (!key.endsWith(':done')) continue;
+    if (parseKey(key)?.kind !== 'lineDone') continue;
     const r = resolve(group, { trueWins: true });
     if (r.value === true && new Set(r.by.map((e) => e.dev)).size > 1) {
       out.push({ key, devices: [...new Set(r.by.map((e) => e.dev))] });
@@ -178,7 +161,7 @@ export function doubleTicked(events) {
 export function disagreements(events) {
   const out = [];
   for (const [key, group] of groupByKey(events)) {
-    if (!key.endsWith(':done')) continue;
+    if (parseKey(key)?.kind !== 'lineDone') continue;
     const r = resolve(group, { trueWins: true });
     if (r.conflict) out.push({ key, events: maximal(group) });
   }

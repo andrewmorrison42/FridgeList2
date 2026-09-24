@@ -12,6 +12,7 @@ import { library, cookHistory } from '../core/library.js';
 import { selections, carryOverTransitions } from '../core/carryover.js';
 import { generate, openWaitList } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
+import { K } from '../core/keys.js';
 import { createMemoryStorage } from '../data/storage.js';
 import { createOneDriveStorage } from '../data/onedrive.js';
 import { createAuth } from '../data/auth.js';
@@ -182,7 +183,7 @@ export async function createApp({ storage } = {}) {
       const { lines } = this.list();
       const fulfil = [];
       for (const line of lines) {
-        if (!store.get(`line:${id}:${line.ingredientId}:done`)) continue;
+        if (!store.get(K.lineDone(id, line.ingredientId))) continue;
         for (const src of line.sources) {
           if (src.kind === 'waitlist') {
             fulfil.push(device.emit('waitlist.item', { itemId: src.itemId, present: false }, 'open'));
@@ -198,7 +199,7 @@ export async function createApp({ storage } = {}) {
     /** What still is not done, at the point the household believes it is. FR-SYNC-4.3. */
     outstanding() {
       const { id } = currentShop(store.events);
-      return this.list().lines.filter((l) => !store.get(`line:${id}:${l.ingredientId}:done`));
+      return this.list().lines.filter((l) => !store.get(K.lineDone(id, l.ingredientId)));
     },
 
     // -- lifecycle ----------------------------------------------------------

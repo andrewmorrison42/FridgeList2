@@ -5,6 +5,7 @@
 // further week only; after that the household is made to decide.
 
 import { stateOf } from './merge.js';
+import { parseKey } from './keys.js';
 
 export const PLANNED = 'planned';
 export const COOKED = 'cooked';
@@ -24,9 +25,9 @@ export function selections(events) {
   const out = new Map();
 
   for (const [key, reg] of state) {
-    const m = /^menu:([^:]+):present$/.exec(key);
-    if (!m) continue;
-    const [, recipeId] = m;
+    const k = parseKey(key);
+    if (k?.kind !== 'menuPresent') continue;
+    const { recipeId } = k;
     if (reg.value !== true) continue;                // removed (FR-MENU-6)
     const source = reg.by[0];
     out.set(recipeId, {
@@ -40,10 +41,10 @@ export function selections(events) {
 
   for (const [key, reg] of state) {
     if (reg.value !== true) continue;
-    const cooked = /^menu:([^:]+):cooked$/.exec(key);
-    if (cooked && out.has(cooked[1])) out.get(cooked[1]).cooked = true;
-    const carried = /^menu:([^:]+):carried:(.+)$/.exec(key);
-    if (carried && out.has(carried[1])) out.get(carried[1]).carriedInto.add(carried[2]);
+    const k = parseKey(key);
+    if (!k || !out.has(k.recipeId)) continue;
+    if (k.kind === 'menuCooked') out.get(k.recipeId).cooked = true;
+    if (k.kind === 'menuCarried') out.get(k.recipeId).carriedInto.add(k.shopId);
   }
 
   for (const sel of out.values()) sel.status = statusOf(sel);

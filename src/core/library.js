@@ -6,6 +6,7 @@
 // own files and is fetched conditionally rather than polled (§7.2).
 
 import { stateOf } from './merge.js';
+import { parseKey } from './keys.js';
 
 /** @returns {{ recipes: Map, ingredients: Map }} */
 export function library(events) {
@@ -15,10 +16,9 @@ export function library(events) {
 
   for (const [key, reg] of state) {
     if (reg.value === undefined || reg.value === null) continue;
-    const r = /^recipe:(.+)$/.exec(key);
-    if (r) { recipes.set(r[1], reg.value); continue; }
-    const i = /^ingredient:(.+)$/.exec(key);
-    if (i) ingredients.set(i[1], reg.value);
+    const k = parseKey(key);
+    if (k?.kind === 'recipe') recipes.set(k.recipeId, reg.value);
+    else if (k?.kind === 'ingredient') ingredients.set(k.ingredientId, reg.value);
   }
   return { recipes, ingredients };
 }

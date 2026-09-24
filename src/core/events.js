@@ -5,6 +5,8 @@
 // device had actually seen when it acted — never by wall-clock time.
 // ARCHITECTURE.md §5.1–§5.3.
 
+import { keyOf } from './keys.js';
+
 /** Event types, and the shop phase in which each may be created. §5.9 */
 export const PHASES = ['draft', 'open', 'closed'];
 
@@ -129,6 +131,9 @@ export function createDevice(id, { now = () => new Date().toISOString() } = {}) 
       if (!isPermitted(type, phase, payload)) {
         throw new Error(`${type} is not permitted while a shop is ${phase}`);
       }
+      // Refused at creation, like any other invalid event (§8.5): an event
+      // whose key would be ambiguous is never made, rather than mis-read later.
+      keyOf({ type, payload });
       seq += 1;
       seen = vvAdvance(seen, id, seq);
       return {

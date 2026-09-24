@@ -10,6 +10,7 @@ import { formatQuantity } from '../core/units.js';
 import { sinceLabel } from '../core/library.js';
 import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
+import { K } from '../core/keys.js';
 
 const STATUS_LABEL = { [PLANNED]: 'Planned', [CARRIED]: 'Carried over', [FLAGGED]: 'Needs a decision', [COOKED]: 'Cooked' };
 
@@ -77,7 +78,7 @@ export function listView(app, { onAction }) {
   // The list arrives fully derived — suppression, additions and the lock
   // snapshot already applied in core. A view renders; it does not decide.
   const { lines: visible, carryOver, problems } = app.list();
-  const done = (l) => app.store.get(`line:${id}:${l.ingredientId}:done`) === true;
+  const done = (l) => app.store.get(K.lineDone(id, l.ingredientId)) === true;
 
   const categoryOrder = ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'];
   const grouped = groupForDisplay(visible, { categoryOrder });

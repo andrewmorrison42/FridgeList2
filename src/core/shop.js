@@ -8,6 +8,7 @@
 // forking the chain.
 
 import { stateOf } from './merge.js';
+import { parseKey } from './keys.js';
 import { selections, PLANNED } from './carryover.js';
 
 export const GENESIS_SHOP = 'shop-0001';
@@ -30,9 +31,10 @@ export function shopPhases(events) {
   const state = stateOf(events);
   const phases = new Map();
   for (const [key, reg] of state) {
-    const m = /^shop:([^:]+):(locked|closed)$/.exec(key);
-    if (!m || reg.value !== true) continue;
-    const [, id, what] = m;
+    const k = parseKey(key);
+    if (!k || (k.kind !== 'shopLocked' && k.kind !== 'shopClosed') || reg.value !== true) continue;
+    const id = k.shopId;
+    const what = k.kind === 'shopClosed' ? 'closed' : 'locked';
     const current = phases.get(id);
     // closed outranks locked: a shop that has been closed is closed.
     if (what === 'closed' || current !== 'closed') {

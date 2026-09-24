@@ -93,6 +93,13 @@ const MUTATIONS = [
     find: "      } catch (err) {\n        problems.push({\n          kind: 'missing-conversion',",
     replace: "      } catch (err) {\n        throw err;\n        problems.push({\n          kind: 'missing-conversion'," },
 
+  // -- the migration (§12) --------------------------------------------------
+  { name: 'import-double-conversion',
+    rule: 'Imported quantities equal the source, converted once (glitch #1)',
+    file: 'tools/import.js',
+    find: '        cookingUnit: null,',
+    replace: '        cookingUnit: line.displayUnit ?? null,' },
+
   // -- the store and the screen (FR-SYNC-7, §11.1) --------------------------
   { name: 'store-partial-resolve',
     rule: 'The incremental store equals a full merge (#6)',

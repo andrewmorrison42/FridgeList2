@@ -85,7 +85,9 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
   }
 
   // -- conversions: one factor per (ingredient, cooking unit) ---------------
-  // FR-ING-1 assumes one; the source holds several for 107 pairs, which is
+  // Imported lines don't need these (their quantities are already converted),
+  // but a recipe edited later is entered in cooking units, and FR-ING-1 says
+  // it must convert. FR-ING-1 assumes one factor; the source holds several for 107 pairs, which is
   // rounding noise from individual recipes rather than disagreement about what
   // a teaspoon is. The median lands on the sensible value in every case
   // sampled. Recorded here so the choice is visible rather than buried (A7).
@@ -139,8 +141,15 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
       }
       lines.push({
         ingredientId: ing.id,
+        // The source's `quantity` is ALREADY in the shopping unit — "2 cups of
+        // wine" is stored as 500 mL. It is the number the household has bought
+        // by for years, so it is kept exactly, and `cookingUnit` is left empty
+        // to say "no conversion needed". An earlier version kept 500 but
+        // labelled it "cup", so the app converted it again: every cup or spoon
+        // line inflated 4x-250x (glitch #1; test/migration.test.js).
         quantity,
-        cookingUnit: line.displayUnit ?? null,
+        cookingUnit: null,
+        // How the recipe itself reads ("2 cup") — for showing the recipe only.
         displayQty: line.displayQty ?? null,
         displayUnit: line.displayUnit ?? null,
       });

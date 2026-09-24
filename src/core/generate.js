@@ -110,17 +110,32 @@ export function generate({ events, state, shopId }) {
     if (afterLock) line.addedAfterLock = true;
   };
 
+  // One error-handling posture for the whole derivation: anything wrong with
+  // the data is reported in `problems` and the rest of the list still renders.
+  // units.js throws, which is right for a primitive asked to convert without a
+  // conversion — but that throw must stop here. Before review #5 one recipe
+  // saying "tbsp" where the data says "TBsp" took down the entire list screen,
+  // while an unknown ingredient beside it was politely reported.
   const linesOf = (sel) => {
     const recipe = recipes.get(sel.recipeId);
     if (!recipe) { problems.push({ kind: 'unknown-recipe', recipeId: sel.recipeId }); return []; }
+    if (!recipe.servings) { problems.push({ kind: 'no-servings', recipeId: sel.recipeId }); return []; }
     return recipe.lines.map((l) => {
       // "Serve with lettuce" — a garnish with no amount. It belongs in the
       // recipe, but a zero-quantity shopping line means nothing (A6).
       if (l.garnish || l.quantity === 0) return null;
       const ing = ingredients.get(l.ingredientId);
-      if (!ing) { problems.push({ kind: 'unknown-ingredient', ingredientId: l.ingredientId }); return null; }
-      const scaled = scaleForServings(l.quantity, sel.servings || recipe.servings, recipe.servings);
-      return { ingredientId: l.ingredientId, qty: toShoppingUnit(scaled, l.cookingUnit, ing) };
+      if (!ing) { problems.push({ kind: 'unknown-ingredient', ingredientId: l.ingredientId, recipeId: sel.recipeId }); return null; }
+      try {
+        const scaled = scaleForServings(l.quantity, sel.servings || recipe.servings, recipe.servings);
+        return { ingredientId: l.ingredientId, qty: toShoppingUnit(scaled, l.cookingUnit, ing) };
+      } catch (err) {
+        problems.push({
+          kind: 'missing-conversion', recipeId: sel.recipeId, ingredientId: l.ingredientId,
+          unit: l.cookingUnit, name: ing.name, message: err.message,
+        });
+        return null;
+      }
     }).filter(Boolean);
   };
 

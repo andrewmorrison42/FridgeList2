@@ -137,3 +137,29 @@ describe('the list, as a person sees it (review #2)', () => {
     }), { numRuns: 300 });
   });
 });
+
+describe('a recipe line the list cannot convert (review #5)', () => {
+  it('is reported as a problem, and the rest of the list still renders', () => {
+    // "tbsp" where the data says "TBsp" — one edit by whoever is cooking.
+    const d = createDevice('a');
+    const bad = { ...RECIPES.cake, lines: [...RECIPES.cake.lines, { ingredientId: 'flour', quantity: 1, cookingUnit: 'tbsp' }] };
+    const ev = [...libraryEvents(d),
+      d.emit('recipe.upsert', { recipeId: 'cake', recipe: bad }, 'draft'),
+      plan(d, 'cake')];
+    let result;
+    expect(() => { result = generate({ events: ev, shopId: S }); }).not.toThrow();
+    expect(result.problems).toContainEqual(expect.objectContaining({
+      kind: 'missing-conversion', recipeId: 'cake', ingredientId: 'flour', unit: 'tbsp' }));
+    expect(ids(result.lines)).toEqual(['eggs', 'flour', 'milk']);   // everything else intact
+  });
+
+  it('a recipe with no servings baseline is reported too, not thrown', () => {
+    const d = createDevice('a');
+    const ev = [...libraryEvents(d),
+      d.emit('recipe.upsert', { recipeId: 'cake', recipe: { ...RECIPES.cake, servings: 0 } }, 'draft'),
+      plan(d, 'cake')];
+    let result;
+    expect(() => { result = generate({ events: ev, shopId: S }); }).not.toThrow();
+    expect(result.problems).toContainEqual(expect.objectContaining({ kind: 'no-servings', recipeId: 'cake' }));
+  });
+});

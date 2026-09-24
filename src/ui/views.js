@@ -133,9 +133,23 @@ export function listView(app, { onAction }) {
 
     problems.length > 0 && h('div', { class: 'problems' },
       h('h2', {}, 'Needs attention'),
-      h('ul', {}, problems.map((p) => h('li', {}, `${p.kind}: ${p.ingredientId ?? p.recipeId}`))),
+      h('p', { class: 'hint' }, 'These could not be added to the list. Everything else is complete.'),
+      h('ul', {}, problems.map((p) => h('li', {}, describeProblem(app, p)))),
     ),
   );
+}
+
+/** A data problem, in words a person can fix. */
+function describeProblem(app, p) {
+  const recipe = p.recipeId ? (app.library.recipes.get(p.recipeId)?.name ?? p.recipeId) : null;
+  switch (p.kind) {
+    case 'missing-conversion':
+      return `${recipe}: no way to convert "${p.unit}" of ${p.name} into what it is bought in.`;
+    case 'no-servings':        return `${recipe}: has no servings number, so it cannot be scaled.`;
+    case 'unknown-recipe':     return `A planned recipe no longer exists (${p.recipeId}).`;
+    case 'unknown-ingredient': return `${recipe ?? 'A line'} uses an ingredient that no longer exists (${p.ingredientId}).`;
+    default:                   return `${p.kind}: ${p.ingredientId ?? p.recipeId ?? ''}`;
+  }
 }
 
 // -- Wait list --------------------------------------------------------------

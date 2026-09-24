@@ -8,7 +8,7 @@
 
 import { createStore } from '../core/store.js';
 import { currentShop, nextShopId, permissions, explainRefusal, lockEvent } from '../core/shop.js';
-import { library, cookHistory } from '../core/library.js';
+import { library, cookHistory, recipeFromDraft } from '../core/library.js';
 import { selections } from '../core/carryover.js';
 import { generate, openWaitList } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
@@ -19,6 +19,9 @@ import { createAuth } from '../data/auth.js';
 import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
 import { openLocal, deviceIdentity, local } from '../data/persist.js';
+
+export const STALE_RECIPE =
+  'This recipe was changed on another phone while you were editing. Cancel to see that version.';
 
 /** Per-device configuration. Never shared — it only decides how this phone reaches the folder. */
 export function readConfig() {
@@ -326,6 +329,28 @@ export async function createApp({ storage } = {}) {
       if (auth) auth.signOut();
       local.set('storageMode', 'local');
       config.storageMode = 'local';
+    },
+
+    /**
+     * Save an edited or new recipe. FR-REC-2: anyone, at any time — an open
+     * shop is untouched, because its list is the snapshot taken at the lock.
+     * A draft that cannot be shopped for is not saved; the reasons come back
+     * for the form to show, since a correction is not a refusal.
+     */
+    saveRecipe(draft) {
+      const { recipes, ingredients } = library(store.state);
+      const { recipe, errors } = recipeFromDraft(draft, ingredients, new Set(recipes.keys()));
+      if (!recipe) return { recipe, errors };
+      // Last save wins, so saving a copy opened before someone else's save
+      // would silently undo theirs. Refused instead, with the way out.
+      const stored = draft.source && recipes.get(draft.source.id);
+      if (draft.source && JSON.stringify(stored) !== JSON.stringify(draft.source)) {
+        return { recipe: null, errors: [STALE_RECIPE] };
+      }
+      if (draft.source && JSON.stringify(recipe) === JSON.stringify(draft.source)) return { recipe, errors };
+      const phase = currentShop(store.state).phase;
+      record(device.emit('recipe.upsert', { recipeId: recipe.id, recipe }, phase));
+      return { recipe, errors };
     },
 
     /**

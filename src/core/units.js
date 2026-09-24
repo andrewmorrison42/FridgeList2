@@ -33,6 +33,37 @@ export function toShoppingUnit(quantity, cookingUnit, ingredient) {
   return quantity * factor;
 }
 
+const FRACTIONS = { '\u00bc': 0.25, '\u00bd': 0.5, '\u00be': 0.75, '\u2153': 1 / 3, '\u2154': 2 / 3, '\u215b': 0.125 };
+
+/**
+ * Read an amount as people write it: "500", "0.5", "1/3", "½", "2 ¼", "1 1/2".
+ * Returns a number, or null when there is no amount in it.
+ *
+ * One parser for the whole system: the migration reads the household's data
+ * with it and the recipe editor reads what people type with it, so the two can
+ * never disagree about what "2 ¼" means. (The migration's own copy claimed to
+ * read "2 1/4" and returned nothing for it.) A parsed zero is a value — "0"
+ * means "to serve" — never a failure.
+ */
+export function parseAmount(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  let t = String(raw ?? '').trim();
+  if (!t) return null;
+  let total = 0;
+  let parsed = false;
+  for (const [glyph, value] of Object.entries(FRACTIONS)) {
+    if (t.includes(glyph)) { total += value; t = t.replace(glyph, ' '); parsed = true; }
+  }
+  for (const part of t.split(/\s+/).filter(Boolean)) {
+    const slash = /^(\d+)\/(\d+)$/.exec(part);
+    if (slash && Number(slash[2]) !== 0) { total += Number(slash[1]) / Number(slash[2]); parsed = true; continue; }
+    const n = Number(part.replace(',', '.'));
+    if (part && Number.isFinite(n)) { total += n; parsed = true; continue; }
+    return null;                       // something that is not an amount
+  }
+  return parsed ? total : null;
+}
+
 /** Scale a recipe line for the servings actually wanted. */
 export function scaleForServings(quantity, wantServings, recipeServings) {
   if (!recipeServings) throw new Error('recipe has no servings baseline (FR-REC-1)');

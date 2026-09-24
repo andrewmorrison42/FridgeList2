@@ -43,6 +43,17 @@ for (const width of [375, 320]) {
       await window.app.closeShop();
     });
     for (const tab of ['Plan', 'List']) { await p.tab(tab); await shoot(`next-week-${tab.toLowerCase()}`); }
+
+    // Editing a recipe, and a new one refused on the form (FR-REC-2).
+    await p.app(() => { window.app.ui.openRecipe = 'mushroom-risotto'; });
+    await p.tab('Recipes');
+    await p.page.locator('main button', { hasText: 'Edit' }).tap();
+    await shoot('recipe-edit');
+    await p.page.locator('main button', { hasText: 'Cancel' }).tap();
+    await p.page.locator('main button', { hasText: 'All recipes' }).tap();
+    await p.page.locator('main button', { hasText: 'New recipe' }).tap();
+    await p.page.locator('main button', { hasText: 'Save' }).tap();
+    await shoot('recipe-new-refused');
     await p.close();
   }
 }

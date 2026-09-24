@@ -316,3 +316,18 @@ describe('imported trip history (FR-REC-4, FR-HIST-2)', () => {
     expect(cookHistory(events).get('cake')).toBe('2026-09-20T00:00:00.000Z');
   });
 });
+
+describe('reading amounts as people write them', () => {
+  it('one parser for the migration and the recipe editor', async () => {
+    const { parseAmount } = await import('../src/core/units.js');
+    expect(parseAmount('500')).toBe(500);
+    expect(parseAmount('0.5')).toBe(0.5);
+    expect(parseAmount('1/3')).toBeCloseTo(1 / 3);
+    expect(parseAmount('½')).toBe(0.5);
+    expect(parseAmount('2 ¼')).toBe(2.25);
+    expect(parseAmount('1 1/2')).toBe(1.5);          // the old parser returned nothing
+    expect(parseAmount('0')).toBe(0);                 // "to serve" — a value, not a failure
+    expect(parseAmount('two')).toBe(null);
+    expect(parseAmount('')).toBe(null);
+  });
+});

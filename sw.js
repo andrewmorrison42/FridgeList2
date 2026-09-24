@@ -7,7 +7,7 @@
 
 // Bump whenever SHELL changes, so installed copies re-install and pick it up.
 // test/shell.test.js checks SHELL against the files that actually exist.
-const CACHE = 'fridgelist-v2';
+const CACHE = 'fridgelist-v3';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',

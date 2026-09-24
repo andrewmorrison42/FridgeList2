@@ -206,6 +206,77 @@ describe('as a person uses it', () => {
     await p.close();
   });
 
+  it('editing a recipe, typed as a person types: the change is saved and shown as written (FR-REC-2)', async () => {
+    const p = await phone(browser, server.url);
+    await p.tab('Recipes');
+    await p.type(p.page.locator('input[type=search]'), 'mushroom risotto');
+    await p.tap(p.page.locator('.picker button', { hasText: 'Mushroom Risotto' }));
+    await p.tap(p.page.locator('main button', { hasText: 'Edit' }));
+
+    const stock = p.page.locator('.edit-lines li', { hasText: 'Stock: vegetable' });
+    const qty = stock.locator('input');
+    expect(await qty.inputValue()).toBe('6');                 // as the recipe reads: cups
+    await qty.tap();
+    await p.page.keyboard.press('Control+A');
+    await p.page.keyboard.type('10', { delay: 30 });
+    expect(await qty.inputValue()).toBe('10');                // every key kept
+    expect(await p.page.evaluate(() => document.activeElement?.dataset.key)).toBe('edit-qty-2');
+    expect(await stock.locator('select option').allTextContents()).toEqual(['mL', 'cup']);
+
+    await p.tap(p.page.locator('main button', { hasText: 'Save' }));
+    expect(await p.page.locator('main li', { hasText: 'Stock: vegetable' }).textContent()).toBe('10 cup Stock: vegetable');
+    expect(await p.app(() => window.app.library.recipes.get('mushroom-risotto').lines[2]))
+      .toMatchObject({ quantity: 10, cookingUnit: 'cup' });
+    expect(await p.app(() => window.app.ui.refusals ?? 0)).toBe(0);
+    expect(p.errors).toEqual([]);
+    await p.close();
+  });
+
+  it('a new recipe, typed as a person types — and what cannot be saved is said on the form, not refused', async () => {
+    const p = await phone(browser, server.url);
+    await p.tab('Recipes');
+    await p.tap(p.page.locator('main button', { hasText: 'New recipe' }));
+    await p.tap(p.page.locator('main button', { hasText: 'Save' }));
+    expect(await p.page.locator('.errors li').allTextContents())
+      .toEqual(['The recipe needs a name.', 'Servings must be a whole number of at least 1.']);
+
+    await p.type(p.page.locator('[data-key=edit-name]'), 'Leek tart');
+    await p.type(p.page.locator('[data-key=edit-servings]'), '4');
+    await p.type(p.page.locator('[data-key=edit-search]'), 'Leek');
+    await p.tap(p.page.locator('.picker li', { hasText: /^Leek/ }).first().locator('button'));
+    await p.type(p.page.locator('[data-key=edit-qty-0]'), '2');
+    await p.type(p.page.locator('[data-key=edit-method]'), 'Slice the leeks.');
+    await p.tap(p.page.locator('main button', { hasText: 'Save' }));
+
+    expect(await p.page.locator('main h1').textContent()).toBe('Leek tart');
+    expect(await p.page.locator('main li').allTextContents()).toEqual(['2 Leek', 'Slice the leeks.']);
+    expect(await p.app(() => window.app.ui.refusals ?? 0)).toBe(0);
+    await p.close();
+  });
+
+  it('the recipe editor: nothing on an ingredient row sits on top of anything else', async () => {
+    const p = await phone(browser, server.url);
+    await p.app(() => { window.app.ui.openRecipe = 'mushroom-risotto'; });
+    await p.tab('Recipes');
+    await p.tap(p.page.locator('main button', { hasText: 'Edit' }));
+    const found = await p.page.evaluate(() => {
+      const out = [];
+      for (const row of document.querySelectorAll('.edit-lines li')) {
+        const leaves = [...row.children].map((e) => [e, e.getBoundingClientRect()]);
+        for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
+          const [a, ra] = leaves[i]; const [b, rb] = leaves[j];
+          const w = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+          const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+          if (w > 2 && h > 2) out.push(`${a.tagName} / ${b.tagName}`);
+        }
+        if (row.scrollWidth > row.clientWidth + 1) out.push(`${row.textContent} overflows`);
+      }
+      return out;
+    });
+    expect(found).toEqual([]);
+    await p.close();
+  });
+
   it('#9 — paste the client id, tap Connect once, and you are sent to sign in', async () => {
     const p = await phone(browser, server.url, { hash: '#settings' });
     let signIn = false;

@@ -6,6 +6,7 @@ import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
 import { connectView } from './connect.js';
+import { draftFromRecipe } from '../core/library.js';
 import { createMemoryStorage } from '../data/storage.js';
 
 const TABS = [
@@ -63,6 +64,35 @@ export async function mount(root, { storage } = {}) {
       case 'waitSearch': app.ui.waitSearch = args[0]; break;
       case 'recipeSearch': app.ui.recipeSearch = args[0]; break;
       case 'openRecipe': app.ui.openRecipe = args[0]; break;
+      case 'editRecipe': {
+        const { recipes, ingredients } = app.library;
+        app.ui.editing = draftFromRecipe(args[0] ? recipes.get(args[0]) : null, ingredients);
+        app.ui.editErrors = [];
+        app.ui.editSearch = '';
+        window.scrollTo(0, 0);
+        break;
+      }
+      case 'editField':  app.ui.editing[args[0]] = args[1]; break;
+      case 'editLine': {
+        const lines = app.ui.editing.lines;
+        lines[args[0]] = { ...lines[args[0]], [args[1]]: args[2], dirty: true };
+        break;
+      }
+      case 'removeLine': app.ui.editing.lines.splice(args[0], 1); break;
+      case 'editSearch': app.ui.editSearch = args[0]; break;
+      case 'addEditLine': {
+        const ing = app.library.ingredients.get(args[0]);
+        app.ui.editing.lines.push({ ingredientId: ing.id, qtyText: '', unit: ing.shoppingUnit, original: null, dirty: true });
+        app.ui.editSearch = '';
+        break;
+      }
+      case 'saveRecipe': {
+        const { recipe, errors } = app.saveRecipe(app.ui.editing);
+        app.ui.editErrors = errors;
+        if (recipe) { app.ui.editing = null; app.ui.openRecipe = recipe.id; }
+        break;
+      }
+      case 'cancelEdit': app.ui.editing = null; app.ui.editErrors = []; break;
       case 'plan':       app.planRecipe(args[0], args[1]); break;
       case 'unplan':     app.unplanRecipe(args[0], args[1]); break;
       case 'servings':   app.setServings(args[0], args[1], args[2]); break;

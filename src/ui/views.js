@@ -7,7 +7,7 @@
 import { h } from './dom.js';
 import { groupForDisplay } from '../core/generate.js';
 import { formatQuantity, describeRecipeLine } from '../core/units.js';
-import { sinceLabel } from '../core/library.js';
+import { sinceLabel, unitsFor } from '../core/library.js';
 import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
 import { K } from '../core/keys.js';
@@ -251,10 +251,15 @@ export function recipesView(app, { onAction }) {
   const open = app.ui.openRecipe;
   const search = app.ui.recipeSearch ?? '';
 
+  if (app.ui.editing) return recipeEditor(app, { onAction });
+
   if (open && recipes.has(open)) {
     const r = recipes.get(open);
     return h('section', {},
-      h('button', { onClick: () => onAction('openRecipe', null) }, '← All recipes'),
+      h('div', { class: 'row' },
+        h('button', { class: 'grow', onClick: () => onAction('openRecipe', null) }, '← All recipes'),
+        h('button', { onClick: () => onAction('editRecipe', r.id) }, 'Edit'),
+      ),
       h('h1', {}, r.name),
       h('p', { class: 'hint' }, `Serves ${r.servings} · last chosen ${sinceLabel(history.get(r.id))}`),
       h('h2', {}, 'Ingredients'),
@@ -272,7 +277,10 @@ export function recipesView(app, { onAction }) {
     .slice(0, 80);
 
   return h('section', {},
-    h('h1', {}, 'Recipes'),
+    h('div', { class: 'row' },
+      h('h1', { class: 'grow' }, 'Recipes'),
+      h('button', { onClick: () => onAction('editRecipe', null) }, 'New recipe'),
+    ),
     h('input', {
       type: 'search', placeholder: `Search ${recipes.size} recipes`, value: search, dataset: { key: 'recipe-search' },
       onInput: (e) => onAction('recipeSearch', e.target.value),
@@ -281,5 +289,73 @@ export function recipesView(app, { onAction }) {
       h('button', { class: 'link grow', onClick: () => onAction('openRecipe', r.id) }, r.name),
       h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
     ))),
+  );
+}
+
+/**
+ * Editing a recipe, or writing a new one. FR-REC-2. The rules live in core
+ * (recipeFromDraft); this form only collects what is typed. Every unit offered
+ * can be converted to what is bought, and what cannot be saved is said here,
+ * on the form, rather than as a refusal — a correction is not an error.
+ */
+function recipeEditor(app, { onAction }) {
+  const { ingredients } = app.library;
+  const d = app.ui.editing;
+  const errors = app.ui.editErrors ?? [];
+  const search = (app.ui.editSearch ?? '').trim();
+  const matches = search
+    ? [...ingredients.values()].filter((i) => i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12)
+    : [];
+  const field = (key, attrs) => h('input', { ...attrs, dataset: { key: `edit-${key}` } });
+
+  return h('section', { class: 'editor' },
+    h('h1', {}, d.source ? `Edit ${d.source.name}` : 'New recipe'),
+    errors.length > 0 && h('ul', { class: 'errors', role: 'alert' }, errors.map((e) => h('li', {}, e))),
+    h('label', {}, 'Name',
+      field('name', { type: 'text', value: d.name, onInput: (e) => onAction('editField', 'name', e.target.value) })),
+    h('label', {}, 'Serves',
+      field('servings', { type: 'text', inputmode: 'numeric', value: d.servings, onInput: (e) => onAction('editField', 'servings', e.target.value) })),
+
+    h('h2', {}, 'Ingredients'),
+    h('ul', { class: 'edit-lines' }, d.lines.map((l, i) => {
+      const ing = ingredients.get(l.ingredientId);
+      const units = ing ? unitsFor(ing) : [];
+      // An imported unit with no conversion is still shown as the recipe reads;
+      // it only becomes a problem if the line is changed.
+      if (!units.includes(l.unit)) units.push(l.unit);
+      return h('li', {},
+        h('span', { class: 'grow' }, ing?.name ?? l.ingredientId),
+        field(`qty-${i}`, {
+          type: 'text', class: 'qty-input', value: l.qtyText, placeholder: 'to serve', 'aria-label': `Amount of ${ing?.name}`,
+          onInput: (e) => onAction('editLine', i, 'qtyText', e.target.value),
+        }),
+        h('select', {
+          dataset: { key: `edit-unit-${i}` }, 'aria-label': `Unit for ${ing?.name}`,
+          onChange: (e) => onAction('editLine', i, 'unit', e.target.value),
+        }, units.map((u) => h('option', { value: u, selected: u === l.unit }, u))),
+        h('button', { 'aria-label': `Remove ${ing?.name}`, onClick: () => onAction('removeLine', i) }, '✕'),
+      );
+    })),
+    h('input', {
+      type: 'search', placeholder: 'Add an ingredient', value: app.ui.editSearch ?? '', dataset: { key: 'edit-search' },
+      onInput: (e) => onAction('editSearch', e.target.value),
+    }),
+    search && h('ul', { class: 'picker' }, matches.length
+      ? matches.map((i) => h('li', {},
+          h('span', { class: 'grow' }, i.name),
+          h('button', { onClick: () => onAction('addEditLine', i.id) }, 'Add'),
+        ))
+      : h('li', { class: 'hint' }, 'Not in the ingredient list.')),
+
+    h('h2', {}, 'Method'),
+    h('textarea', {
+      rows: 8, dataset: { key: 'edit-method' }, placeholder: 'One step per line',
+      onInput: (e) => onAction('editField', 'method', e.target.value),
+    }, d.method),
+
+    h('div', { class: 'row' },
+      h('button', { class: 'primary grow', onClick: () => onAction('saveRecipe') }, 'Save'),
+      h('button', { onClick: () => onAction('cancelEdit') }, 'Cancel'),
+    ),
   );
 }

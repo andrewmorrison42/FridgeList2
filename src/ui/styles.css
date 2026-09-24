@@ -182,3 +182,21 @@ nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 
   border: 1px solid var(--line); border-radius: 10px;
 }
 .ok { color: var(--accent); font-weight: 600; }
+
+/* --- recipe editor (FR-REC-2) ------------------------------------------- */
+
+.row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.editor label { flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; cursor: default; font-size: .84rem; color: var(--muted); }
+.editor input[type="text"], .editor select, .editor textarea {
+  font: inherit; font-size: 1rem; color: var(--fg); background: transparent;
+  border: 1px solid var(--line); border-radius: 10px; min-height: var(--tap); padding: 0 10px;
+}
+.editor textarea { width: 100%; padding: 10px; line-height: 1.4; }
+/* An ingredient line: the name above, the amount, unit and remove beneath it —
+   in one row a long name squeezed the amount to nothing. */
+.edit-lines li { flex-wrap: wrap; row-gap: 4px; padding: 8px 0; }
+.edit-lines li > .grow { flex: 1 1 100%; }
+.editor .qty-input { width: 6.5em; flex: 1 1 auto; }
+.editor select { flex: 0 0 5.5em; }   /* one width, so the amounts line up */
+.errors { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: 10px; padding: 4px 12px; margin: 8px 0; }
+.errors li { color: var(--warn); font-size: .88rem; min-height: 0; border-bottom: none; }

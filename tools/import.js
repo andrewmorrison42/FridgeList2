@@ -8,31 +8,11 @@
 //   node tools/import.js [source.json] [trip-history.json]
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { parseAmount } from '../src/core/units.js';
 
-const FRACTIONS = { '¼': 0.25, '½': 0.5, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3, '⅛': 0.125 };
-
-/** Parse "2 1/4", "1/3", "500" - the display quantities as actually written. */
-function parseQty(raw) {
-  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
-  let t = String(raw ?? '').trim();
-  if (!t) return null;
-  let total = 0;
-  let parsedSomething = false;
-  for (const [glyph, value] of Object.entries(FRACTIONS)) {
-    if (t.includes(glyph)) { total += value; t = t.replace(glyph, ''); parsedSomething = true; }
-  }
-  t = t.trim();
-  if (t) {
-    const slash = /^(\d+)\s*\/\s*(\d+)$/.exec(t);
-    if (slash) { total += Number(slash[1]) / Number(slash[2]); parsedSomething = true; }
-    else if (Number.isFinite(Number(t))) { total += Number(t); parsedSomething = true; }
-    else return parsedSomething ? total : null;
-  }
-  // A parsed zero is a value, not a failure. "0" means "to serve" - a garnish
-  // with no amount - and returning null for it would silently drop the line
-  // instead of carrying it as one (A6).
-  return parsedSomething ? total : null;
-}
+// One amount parser for the whole system (src/core/units.js), so the
+// migration and the recipe editor can never read "2 ¼" differently.
+const parseQty = parseAmount;
 
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);

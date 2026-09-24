@@ -20,7 +20,9 @@ closed by FR-SYNC-7 and §11.1. Also records the atomic-upload assumption that
 testing the engine (§14.3). A selection becomes (recipe, shop) and carry-over is
 derived rather than emitted (§9.1). The migration no longer converts quantities
 twice (§12). A browser suite joins the unit suite, and a device connected to
-nothing says so (§8.3).
+nothing says so (§8.3). Builds the three requirements that were still missing:
+servings (FR-MENU-1), the Wait List note and free-text items (FR-WAIT-1), and
+recipe editing (FR-REC-2, §9.2).
 
 **Changes in v0.5:** results of a whole-codebase consistency review, recorded
 in §1.3. The lock snapshot moves from a `header.json` file into the lock event
@@ -347,7 +349,7 @@ ticks share one code path (Round 4, Q5).
 | Menu servings count | Last-save-wins | Numeric correction; loss is visible and trivially redone |
 | Generated line quantity | **Not stored — derived** from the merged menu selection set | See below |
 | Manually added line quantity | Last-save-wins | Nothing derives it |
-| Recipe fields, ingredient fields | Last-save-wins, per field | Stakeholder Round 4: edits are rare and made in the moment |
+| Recipe, ingredient | Last-save-wins, whole record; a stale copy is refused at save (§9.2) | Stakeholder Round 4: edits are rare and made in the moment |
 | Shopping line removal (pre-shop) | Present-wins; removal only valid while the shop is a draft | FR-LIST-3 + §8.5 |
 | Carried-over dismissal | Shop-scoped, last-save-wins | FR-MENU-7.2 — affects the current shop only |
 
@@ -931,6 +933,36 @@ next shop if still unresolved. This is what closes the URS §10 open question.
 
 ---
 
+### 9.2 Recipe editing (FR-REC-2)
+
+Anyone may edit or create a recipe at any time, including while a shop is open:
+the open shop's list is the snapshot in its lock event (§6), so an edit reaches
+the next list and never the one in someone's hand.
+
+The rules live in `core/library.js` — `draftFromRecipe`, `recipeFromDraft`,
+`unitsFor` — and the form only collects what is typed.
+
+- **A line nobody touched is saved back exactly as it was.** Imported lines hold
+  their quantity in the shopping unit with the recipe's own wording ("6 cup")
+  kept for display (§12). Re-deriving an untouched line from its wording would
+  move the figure the household buys by, so it is not re-derived. Checked
+  against all 638 imported recipes: opening and saving any of them changes
+  nothing.
+- **An edited line is kept as typed**, in the unit chosen, and converted through
+  the ingredient like any other (FR-ING-1). Only units the ingredient can be
+  converted from are offered; a blank amount means "to serve".
+- **What cannot be shopped for is not saved.** No name, servings that are not a
+  whole number, an amount that is not an amount, or a unit with no conversion:
+  the form says which, and nothing is written. These are corrections, not
+  refusals, so they are shown on the form and not counted as refusals (§14.3).
+- **Last save wins (§5.5), so a stale copy is refused.** Saving a draft opened
+  before a save this device has since received would silently undo that save.
+  It is refused with the way out (Cancel, and see the newer version). Saving
+  with no change writes nothing, for the same reason. Two edits made on phones
+  that have not yet synced remain last-save-wins; that loss is visible (the
+  recipe reads as the other person left it) and cheap to redo, which P-II
+  accepts.
+
 ## 10. Shopping list generation and layout
 
 Generation (FR-LIST-1, -2) is a pure function, exercised directly by tests. It
@@ -1422,7 +1454,7 @@ Deliberately minimal, and appropriate to the deployment:
 | FR-ING-2 one group | §9 (`category`), §10.1 |
 | FR-ING-3/4 preference | §9, §10.1 |
 | FR-REC-1 recipes | §9 |
-| FR-REC-2 anyone may edit | §5.5 (last-save-wins); §6 (an open shop is immune, via the header snapshot) |
+| FR-REC-2 anyone may edit | §5.5 (last-save-wins); §6 (an open shop is immune, via the lock snapshot); §9.2 |
 | FR-REC-3 last selected | §9, §15.3 |
 | FR-REC-4 signal in the picker | §9.1, §15.3 |
 | FR-REC-5 no bulk delete | Not implemented — deliberate absence |

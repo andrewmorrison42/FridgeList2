@@ -88,6 +88,10 @@ export function staleness(syncStatus, roster) {
   const unsentUrgent = syncStatus.unsentShop ?? syncStatus.unsent;
   const selfStale = selfAge === null || selfAge > STALE_MS || unsentUrgent > 0;
   const staleOthers = others.filter((r) => r.stale);
+  // A peer whose file we could not read is worse than stale: some of their
+  // ticks may be missing from this screen entirely. Named, not summarised.
+  const nameOf = (id) => roster.find((r) => r.deviceId === id)?.nickname ?? id;
+  const unreadable = [...new Set((syncStatus.unreadable ?? []).map((u) => nameOf(u.deviceId)))];
 
   return {
     selfStale,
@@ -96,9 +100,12 @@ export function staleness(syncStatus, roster) {
       : unsentUrgent > 0 ? `${unsentUrgent} unsent · last synced ${ago(selfAge)}`
       : `synced ${ago(selfAge)}`,
     others: others.map((r) => ({ ...r, text: `${r.nickname} · ${ago(r.ageMs)}` })),
-    warn: selfStale || staleOthers.length > 0,
+    unreadable,
+    warn: selfStale || staleOthers.length > 0 || unreadable.length > 0,
     warnText:
-      selfStale && staleOthers.length
+      unreadable.length
+        ? `${unreadable.join(', ')}'s list couldn't be read — their ticks may be missing here`
+      : selfStale && staleOthers.length
         ? `You and ${staleOthers.length} other device(s) may be out of date`
       : selfStale ? 'Your list may be out of date'
       : staleOthers.length ? `${staleOthers.map((r) => r.nickname).join(', ')} may be out of date`

@@ -176,3 +176,53 @@ describe('presence and staleness (§8.2, §8.3)', () => {
     expect(s.selfText).toBe('not synced yet');
   });
 });
+
+describe("a peer's file that cannot be read (review #1, FR-SYNC-2)", () => {
+  it('does not report healthy, and names the device whose ticks are missing', async () => {
+    const storage = createMemoryStorage();
+    const a = phone('d0', storage);
+    await a.sync.pull();
+    await storage.write('shops/s1/log/d1.jsonl', '{"id":"d1-0001","dev":"d1",BROKEN');
+    await a.sync.pull();
+
+    const st = a.sync.status();
+    expect(st.healthy).toBe(false);
+    expect(st.unreadable.map((u) => u.deviceId)).toEqual(['d1']);
+
+    const s = staleness(st, [{ deviceId: 'd1', nickname: 'Alex', isSelf: false, ageMs: 1000, stale: false }]);
+    expect(s.warn).toBe(true);
+    expect(s.warnText).toMatch(/Alex/);
+  });
+
+  it('keeps every readable line of a damaged file, so the ticks it can read survive', async () => {
+    const storage = createMemoryStorage();
+    const b = phone('d1', storage);
+    b.tick('flour');
+    b.tick('olives');
+    await b.sync.push();
+    // Truncate the last line mid-write — the non-atomic failure of §7.4.
+    const got = await storage.read('shops/s1/log/d1.jsonl');
+    await storage.write('shops/s1/log/d1.jsonl', got.content.slice(0, got.content.length - 20));
+
+    const a = phone('d0', storage);
+    await a.sync.pull();
+    expect(a.done('flour')).toBe(true);                      // the intact line
+    expect(a.sync.status().unreadable).toHaveLength(1);      // and the damage is reported
+  });
+
+  it('clears the report once the file is readable again', async () => {
+    const storage = createMemoryStorage();
+    const a = phone('d0', storage);
+    await a.sync.pull();
+    await storage.write('shops/s1/log/d1.jsonl', 'garbage');
+    await a.sync.pull();
+    expect(a.sync.status().unreadable).toHaveLength(1);
+
+    const b = phone('d1', storage);
+    b.tick('flour');
+    await b.sync.push();                                     // d1 rewrites its own file
+    await a.sync.pull();
+    expect(a.sync.status().unreadable).toHaveLength(0);
+    expect(a.done('flour')).toBe(true);
+  });
+});

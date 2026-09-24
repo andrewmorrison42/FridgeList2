@@ -28,6 +28,11 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
   const etags = new Map();          // path -> last etag seen
   const snapshotSeq = new Map();    // path prefix -> n
   let cursor = undefined;
+  // Peer files that could not be read, by path. Persists across pulls: delta
+  // only reports a file when it changes, so a damaged file that is never
+  // rewritten would otherwise be forgotten after one pull — and that peer's
+  // ticks would be missing while this device said it was current.
+  const unreadable = new Map();
   let unsent = [];                  // events emitted here, not yet confirmed up
   let failures = 0;
   let lastPullAt = null;
@@ -91,16 +96,32 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
     for (const path of changed) {
       if (path.endsWith(`${deviceId}.jsonl`)) continue;      // our own writing
       if (path.includes('/presence/')) continue;             // handled by presence.js
+      let got;
       try {
-        const got = await storage.read(path, etags.get(path));
-        if (got === NOT_MODIFIED || got === null) continue;
-        etags.set(path, got.etag);
-        const events = got.content.split('\n').filter(Boolean).map((l) => JSON.parse(l));
-        if (store.apply(events)) applied += events.length;
+        got = await storage.read(path, etags.get(path));
       } catch (err) {
         lastError = err.message;                             // one bad file must
         continue;                                            // not stop the rest
       }
+      if (got === NOT_MODIFIED || got === null) continue;
+      etags.set(path, got.etag);
+
+      // Parse line by line. A damaged file — truncated by a non-atomic write,
+      // or corrupted any other way — still yields every intact event, so the
+      // ticks we *can* read are kept; only the damage is reported.
+      const events = [];
+      let bad = 0;
+      for (const line of got.content.split('\n')) {
+        if (!line.trim()) continue;
+        try { events.push(JSON.parse(line)); } catch { bad += 1; }
+      }
+      if (bad > 0) {
+        unreadable.set(path, { path, deviceId: deviceOf(path), badLines: bad });
+        lastError = `could not read ${bad} line(s) of ${path}`;
+      } else {
+        unreadable.delete(path);
+      }
+      if (events.length && store.apply(events)) applied += events.length;
     }
     lastPullAt = now();
     failures = 0;
@@ -128,6 +149,12 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
     return true;
   }
 
+  /** The device that owns a file, from its path — every data file is named for its writer (§4). */
+  function deviceOf(path) {
+    const m = /\/([^/]+?)(?:-\d+)?\.jsonl?$/.exec(path);
+    return m ? m[1] : path;
+  }
+
   /**
    * How current is this device? FR-SYNC-2 — never present stale data
    * indistinguishably from current data.
@@ -145,9 +172,12 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
       lastPushAt,
       lastError,
       ageMs: lastPullAt === null ? null : now() - lastPullAt,
-      // A device with a backoff pending or unsent events says so rather than
-      // implying it is up to date.
-      healthy: failures === 0 && unsent.length === 0,
+      // Files we could not read mean another device's ticks may be missing
+      // here. That is not "up to date", however recently we polled.
+      unreadable: [...unreadable.values()],
+      // A device with a backoff pending, unsent events, or unreadable peer
+      // files says so rather than implying it is up to date.
+      healthy: failures === 0 && unsent.length === 0 && unreadable.size === 0,
       retryInMs: failures === 0 ? 0 : BACKOFF_MS[Math.min(failures - 1, BACKOFF_MS.length - 1)],
     };
   }

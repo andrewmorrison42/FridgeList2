@@ -156,6 +156,33 @@ const MUTATIONS = [
     find: "    ? `shops/${shopId}/log/${deviceId}.jsonl`",
     replace: "    ? `shops/${shopId}/log/shared.jsonl`" },
 
+  // -- the screen, as a person uses it (test/ui; run in a browser) ----------
+  { name: 'focus-lost-on-redraw', suite: 'ui',
+    rule: 'Typing in a search box keeps every key (glitch #5)',
+    file: 'src/ui/main.js',
+    find: '        field.focus({ preventScroll: true });',
+    replace: '        void field;' },
+  { name: 'new-screen-mid-page', suite: 'ui',
+    rule: 'Switching screens lands at the top of the new one',
+    file: 'src/ui/main.js',
+    find: 'if (app.ui.tab !== args[0]) window.scrollTo(0, 0);',
+    replace: 'void 0;' },
+  { name: 'sync-waits-for-timer', suite: 'ui',
+    rule: 'A local change is shared promptly, not on the next timer (glitch #7)',
+    file: 'src/ui/app.js',
+    find: '  function syncSoon() { schedule(250); }',
+    replace: '  function syncSoon() {}' },
+  { name: 'forbidden-button-offered', suite: 'ui',
+    rule: 'A screen offers only what the phase permits (glitch #8)',
+    file: 'src/ui/views.js',
+    find: "app.can.canRemoveWaitList && h('button', { onClick: () => onAction('removeWait', item.id) }, 'Remove'),",
+    replace: "h('button', { onClick: () => onAction('removeWait', item.id) }, 'Remove')," },
+  { name: 'setup-records-on-leave', suite: 'ui',
+    rule: 'One tap on Connect works after pasting the client id (glitch #9)',
+    file: 'src/ui/connect.js',
+    find: "              onInput: (e) => onAction('clientId', e.target.value.trim()),",
+    replace: "              onChange: (e) => onAction('clientId', e.target.value.trim())," },
+
   // -- the shell (#7) -------------------------------------------------------
   { name: 'shell-missing-module',
     rule: 'Every module is cached for offline use (#7)',
@@ -164,9 +191,13 @@ const MUTATIONS = [
     replace: '' },
 ];
 
-function runSuite() {
-  const r = spawnSync('npx', ['vitest', 'run', '--bail=1', '--reporter=dot'], { encoding: 'utf8' });
-  return r.status === 0;
+// The fast suite for everything; the browser suite as well for mutations that
+// only a person using the screen would notice.
+function runSuite(ui = false) {
+  const unit = spawnSync('npx', ['vitest', 'run', '--bail=1', '--reporter=dot'], { encoding: 'utf8' });
+  if (unit.status !== 0 || !ui) return unit.status === 0;
+  const browser = spawnSync('npx', ['vitest', 'run', '--config', 'vitest.ui.config.js', '--bail=1', '--reporter=dot'], { encoding: 'utf8' });
+  return browser.status === 0;
 }
 
 const only = process.argv[2];
@@ -176,7 +207,7 @@ if (only && chosen.length === 0) {
   process.exit(2);
 }
 
-if (!runSuite()) {
+if (!runSuite(chosen.some((m) => m.suite === 'ui'))) {
   console.error('The suite fails before any mutation. Fix that first.');
   process.exit(2);
 }
@@ -192,7 +223,7 @@ for (const m of chosen) {
   let killed;
   try {
     writeFileSync(m.file, original.replace(m.find, m.replace));
-    killed = !runSuite();
+    killed = !runSuite(m.suite === 'ui');
   } finally {
     writeFileSync(m.file, original);        // always restore, whatever happened
   }

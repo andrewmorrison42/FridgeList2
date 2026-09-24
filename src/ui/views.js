@@ -55,7 +55,7 @@ export function planView(app, { onAction }) {
 
     h('h2', {}, 'Add a recipe'),
     h('input', {
-      type: 'search', placeholder: 'Search recipes', value: search,
+      type: 'search', placeholder: 'Search recipes', value: search, dataset: { key: 'plan-search' },
       onInput: (e) => onAction('search', e.target.value),
     }),
     h('ul', { class: 'picker' },
@@ -169,7 +169,7 @@ export function waitListView(app, { onAction }) {
       'Anything running low. It stays here until it is bought or removed — a week ending never clears it.'),
 
     h('input', {
-      type: 'search', placeholder: 'Add something running low', value: search,
+      type: 'search', placeholder: 'Add something running low', value: search, dataset: { key: 'wait-search' },
       onInput: (e) => onAction('waitSearch', e.target.value),
     }),
     matches.length > 0 && h('ul', { class: 'picker' },
@@ -184,8 +184,12 @@ export function waitListView(app, { onAction }) {
       : h('ul', { class: 'waitlist' }, items.map((item) => h('li', {},
           h('span', { class: 'grow' }, ingredients.get(item.ingredientId)?.name ?? item.ingredientId),
           item.note && h('small', {}, item.note),
-          h('button', { onClick: () => onAction('removeWait', item.id) }, 'Remove'),
+          // Offered only when it will work. During a shop nothing can be
+          // removed (§5.9); showing the button anyway made it throw (glitch #8).
+          app.can.canRemoveWaitList && h('button', { onClick: () => onAction('removeWait', item.id) }, 'Remove'),
         ))),
+    items.length > 0 && !app.can.canRemoveWaitList && h('p', { class: 'hint' },
+      'During a shop the Wait List only grows. Anything bought comes off it automatically when the shop is completed.'),
   );
 }
 
@@ -223,7 +227,7 @@ export function recipesView(app, { onAction }) {
   return h('section', {},
     h('h1', {}, 'Recipes'),
     h('input', {
-      type: 'search', placeholder: `Search ${recipes.size} recipes`, value: search,
+      type: 'search', placeholder: `Search ${recipes.size} recipes`, value: search, dataset: { key: 'recipe-search' },
       onInput: (e) => onAction('recipeSearch', e.target.value),
     }),
     h('ul', { class: 'picker' }, matches.map((r) => h('li', {},

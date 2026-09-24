@@ -1,8 +1,8 @@
 # The Fridge List — Architecture & Design
 
-**Status:** Draft v0.2, 2026-09-13. Derived from [`URS.md`](URS.md) v0.1 and
-[`SRS.md`](SRS.md) v0.2, and from an architecture interview with the
-stakeholder on the same date.
+**Status:** Draft v0.6, 2026-09-24. Derived from [`URS.md`](URS.md) v0.2 and
+[`SRS.md`](SRS.md) v0.4, and from an architecture interview with the
+stakeholder begun on 2026-09-13.
 
 **Changes in v0.2:** incorporates **FR-SHOP-3 (Menu Lock)** — the menu is
 locked for the duration of a shop. This splits regeneration into a draft-phase
@@ -16,13 +16,19 @@ found one hole — nothing required a merged change to reach the screen — now
 closed by FR-SYNC-7 and §11.1. Also records the atomic-upload assumption that
 §7.4 had been relying on silently.
 
+**Changes in v0.6:** results of using the app as a person would, rather than
+testing the engine (§14.3). A selection becomes (recipe, shop) and carry-over is
+derived rather than emitted (§9.1). The migration no longer converts quantities
+twice (§12). A browser suite joins the unit suite, and a device connected to
+nothing says so (§8.3).
+
 **Changes in v0.5:** results of a whole-codebase consistency review, recorded
 in §1.3. The lock snapshot moves from a `header.json` file into the lock event
 itself (§6) — the file would have been written by whichever device locked, the
 same shared-write defect as the `closed.json` removed in v0.3. Adds `keys.js`
 (§11), the single list derivation (§10), unreadable-file reporting (§8.3), the
 reload upload rule (§7.4), the incremental store (§11.1), and standing mutation
-testing (§14.3).
+testing (§14.4).
 
 **Changes in v0.3:** results of an adversarial review of the draft phase and the
 shop-closing flow. States the two design principles in §1.2. Removes the shared
@@ -123,7 +129,7 @@ than by anyone remembering it — P-I applied to the codebase itself.
 | Never present stale data as current (FR-SYNC-2) | a peer's unreadable file was swallowed; the device said "synced just now" | §8.3; tests; mutation `unreadable-swallowed` |
 | Derivation lives in core (§11) | the list was assembled in three places: suppression in one view, additions nowhere, no lock snapshot at all | §10 — `generate()` is the only derivation |
 | Every merge decision in one place (§5.4) | key formats hand-built and hand-parsed in six files | `keys.js`; a test that fails on any hand-built key |
-| Tests must be able to fail | the single-shop property was true by construction; the addition property checked a register, not the list | §14.3 — `npm run mutate` |
+| Tests must be able to fail | the single-shop property was true by construction; the addition property checked a register, not the list | §14.4 — `npm run mutate` |
 | One error posture per module | `generate()` reported some data problems and threw on others | §10; mutation `conversion-throws` |
 | Durability holds when the app is killed (§7.4) | the upload queue lived only in memory | §7.4; mutation `upload-queue-in-memory` |
 | Every file is written by one device (§4) | the documented `header.json` lock snapshot | §6 — the snapshot is the lock event |
@@ -701,6 +707,10 @@ after 5 minutes without a heartbeat. A dropped device cannot hold up a close
 
 Two independent conditions, both surfaced, per the stakeholder's Round 3 answer:
 
+- **Am I shared at all?** Before OneDrive is connected, the header reads *"on
+  this device only · not shared"* — never "synced", since nobody else can see
+  the list (glitch #4). It informs rather than warns: it is the state before
+  setup, not a fault.
 - **Am I current?** Time since this device's last successful poll, plus its
   unsent-queue depth. Shown always, as plain text: "synced 4s ago", or
   "not syncing — 3 unsent, last synced 4m ago".
@@ -866,23 +876,36 @@ FR-STA-2 names this explicitly as a defect class to design out.
 
 ### 9.1 Carry-over (FR-MENU-3, -5, -7)
 
-Status transitions are computed when a new shop is generated — a `draft`-phase
-activity, per §5.7 — and emitted as **explicit events**, never inferred at
-render time. Inferred status would be
-recomputed differently on devices holding different subsets of history, and
-would therefore drift.
+**A menu selection is *this recipe, planned for this shop*** — identified by
+the pair, not by the recipe alone. Keyed by recipe alone, a "cooked" flag set in
+week 1 stuck to the recipe forever, and a favourite could never be planned again
+(glitch #2, found in v0.6 by walking two weeks of real use).
 
-- Generating a new shop: each `planned` selection not `cooked` becomes
-  `carried`.
+**Carry-over is derived from the shop chain, not recorded.** A selection's
+status is: `cooked` if cooked; otherwise by how many shops have closed since it
+was planned — none, `planned`; one, `carried` (FR-MENU-3); more, `flagged`
+(FR-MENU-5). A flagged entry demands an explicit resolution — cook it, remove
+it, or deliberately re-plan it — and says so until someone acts. Re-planning it
+settles the old entry and leaves one fresh `planned` one.
 
-A selection records **the set of shops it has been carried into**, not a
-counter. Two devices generating in draft both compute the same transition; set
-union makes that idempotent, whereas an incremented counter would reach two and
-send the entry straight to `flagged` a week early. This is the "never increment"
-rule of §5.5 in practice, and it is the whole fix for that defect.
-- Generating again: each `carried` selection not `cooked` becomes `flagged`
-  (FR-MENU-5). A flagged entry demands an explicit resolution — cook, remove, or
-  deliberately re-plan — and says so in the picker until someone acts.
+What is on the menu for a shop: everything planned for that shop, and anything
+planned earlier and never cooked. A meal cooked in an earlier week has done its
+job and leaves (glitch #10); one cooked this week stays, shown as cooked, until
+its shop closes — it should not vanish under the finger that marked it.
+
+Earlier drafts did the opposite on both counts: transitions were **emitted as
+events** when the menu locked, recording the set of shops a selection had been
+carried into. The reasoning was that derived status would "drift" between
+devices holding different history. In practice the emitted design had the worse
+failure: the transition fired at "Menu is settled", *after* the planning it
+exists to inform — so all through week 2's pantry check, last week's uncooked
+meal sat on the main list as if planned, then moved to "check before buying"
+once it was too late to matter (glitch #3). Derivation has no moment to get
+wrong and nothing two devices could double-count; and "drift" between devices
+that have seen different events is simply staleness, which §8.3 already reports.
+This is P-I again — the timing defect is gone because the thing that could be
+mistimed no longer exists.
+
 - `carried` behaves exactly like `planned` for cooking and for appearing in the
   picker (FR-MENU-4).
 
@@ -1092,7 +1115,7 @@ Two findings from that review bear on the design rather than on the data:
 | Duplicate names | 452 entries, 450 distinct names — but the duplicates (*Mint*, *Tahini*) are **not** the same thing: one Mint is fresh (Vegetables aisle), the other dried (Spices). They must be disambiguated by hand before the import assigns ids, not merged. See `data/DATA-REVIEW.md` §2 |
 | Aisle casing | Merge `Baking`/`baking`, `Biscuits`/`biscuits`, `Freezer`/`freezer`, `International`/`international`. 26 values → 22 |
 | Quantities | 1,269 of 5,561 are strings, the rest numbers. Coerce to number; fail loudly on anything unparseable |
-| Units | `unit` is the shopping unit; `displayUnit` the cooking unit. Absent on 3,104 lines, meaning cooked and shopped in the same unit — no conversion, which satisfies FR-ING-1 trivially |
+| Units | The source's `quantity` is **already in the shopping unit** ("6 cups of stock" is stored as 1,500 mL) and is kept exactly, with no cooking unit — no conversion needed. `displayQty`/`displayUnit` keep how the recipe reads, for display only. An earlier import kept 1,500 but labelled it "cup", so every cup or spoon line was converted twice — 2,457 lines, 4× to 250× (glitch #1). `test/migration.test.js` now checks every line against the source |
 | Staples | From `settings.staples` + `settings.stapleQty` onto the ingredient (§9) |
 | Trip history | **Recipes selected and timestamp only** (Round 6); line detail discarded. Two-year cut applied |
 | Anomalies | One ingredient has an empty shopping unit — **flagged in a report, not auto-fixed** |
@@ -1152,6 +1175,8 @@ hold in every one.
 | **P6** | **Phase integrity.** No removal event of any kind — line, menu selection, or Wait List item — is ever valid against a shop in the `open` phase. Generated scenarios attempt them; the engine must reject every one. | FR-SHOP-3, §5.9 |
 | **P7** | **Single shop.** No sequence of events, under any interleaving, produces two shops simultaneously not `closed`, or forks the shop chain into two successor ids. | SRS §2, §8.1 |
 | **P9** | **No line leaves an open shop's list** — under ticks, additions, Wait List additions, recipe edits, or a staple being unflagged. The user-visible form of FR-SYNC-1. | §6, §10, `test/list.test.js` |
+| **P11** | **Over any run of weeks, the menu stays sane** — no recipe twice, nothing cooked in a past week lingering, uncooked meals carried then flagged. | §9.1, `test/weeks.test.js` |
+| **P12** | **The migration equals its source** — every imported line, at its recipe's own servings, yields exactly the quantity the household's data says. | §12, `test/migration.test.js` |
 | **P10** | **The incremental store equals a full merge** — values and deciding events — for any delivery order and batching. | §11.1, `test/store.test.js` |
 | **P8** | **Wait List closure.** A Wait List item whose line was **done** at close is absent from the Wait List afterwards; one whose line was not done is still present. | FR-LIST-7, FR-WAIT-2 |
 
@@ -1215,16 +1240,39 @@ since those are pure functions with known answers.
 
 ---
 
-### 14.3 The tests must be able to fail
+### 14.3 The browser suite: the app as a person uses it
 
-`npm run mutate` reintroduces, one at a time, nineteen specific defects this
+`npm run test:ui` drives the real app in a real browser at phone size, the way a
+thumb does: key-by-key typing, taps, scrolling. It exists because every glitch in
+the v0.6 review was visible within seconds of *using* the app, and none had
+appeared in the unit suite — which tests the engine, not the product.
+
+Its rule is in `test/ui/phone.js`: never set a whole value in one go. Every
+earlier browser check used Playwright's `fill()`, which writes a value in a
+single step and so hid that every search box lost focus after the first key
+press. The helpers do not offer it. The suite covers header honesty, typing in
+each search box, scroll behaviour, prompt sync at the start of a shop, a sweep
+that taps every visible button in every phase and requires no error and no
+refusal, and one-tap Connect after pasting the client id.
+
+A harness is itself something that can lie. One reported glitch — a 400 px jump
+on ticking a line — turned out to be the walkthrough tapping a checkbox hidden
+under the sticky header, which Playwright scrolled into view itself. It was
+withdrawn once a corrected test passed even with the supposed fix removed. The
+lesson generalises §14.4: a test is only evidence once it has been seen to fail
+without the code it guards.
+
+### 14.4 The tests must be able to fail
+
+`npm run mutate` reintroduces, one at a time, thirty specific defects this
 document has a rule against — timestamp ordering, a chain that never advances,
 an open shop that permits removal, a list that re-derives mid-shop, an upload
 queue held only in memory, a device writing another's file, and more — and
 requires at least one test to fail for each. A mutation that survives is a rule
 this document states and the tests do not check. A mutation whose target code
 has moved is reported as stale and fails the run, so the list cannot quietly
-fall behind the code.
+fall behind the code. Mutations only a person using the screen would notice are
+flagged to run the browser suite as well.
 
 It exists because the suite twice shipped a test that could not fail, and each
 passed for weeks. It earned its place on first run: the concurrent-lock test

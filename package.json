@@ -7,10 +7,13 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "mutate": "node tools/mutate.js"
+    "mutate": "node tools/mutate.js",
+    "test:ui": "vitest run --config vitest.ui.config.js",
+    "check": "npm test && npm run test:ui"
   },
   "devDependencies": {
     "fast-check": "^3.23.2",
+    "playwright": "^1.56.1",
     "vitest": "^2.1.9"
   }
 }

@@ -18,8 +18,8 @@ export function connectView(app, { onAction }) {
     h('label', { class: 'field' },
       h('span', {}, 'Name'),
       h('input', {
-        type: 'text', value: app.identity.nickname, placeholder: 'Dad’s phone',
-        onChange: (e) => onAction('nickname', e.target.value),
+        type: 'text', value: app.identity.nickname, placeholder: 'Dad’s phone', dataset: { key: 'nickname' },
+        onInput: (e) => onAction('nickname', e.target.value),
       }),
     ),
     h('p', { class: 'hint' },
@@ -44,8 +44,12 @@ export function connectView(app, { onAction }) {
           h('label', { class: 'field' },
             h('span', {}, 'Application (client) ID'),
             h('input', {
+              // Recorded as it is typed or pasted, not when the box is left:
+              // with onChange, the tap on Connect was what left the box, so it
+              // landed on a still-disabled button and did nothing (glitch #9).
               type: 'text', value: cfg.clientId ?? '', placeholder: '00000000-0000-0000-0000-000000000000',
-              onChange: (e) => onAction('clientId', e.target.value.trim()),
+              dataset: { key: 'client-id' }, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false',
+              onInput: (e) => onAction('clientId', e.target.value.trim()),
             }),
           ),
           h('p', { class: 'hint' },
@@ -54,8 +58,9 @@ export function connectView(app, { onAction }) {
           h('label', { class: 'field' },
             h('span', {}, 'Folder'),
             h('input', {
-              type: 'text', value: cfg.folder, placeholder: '/FridgeList',
-              onChange: (e) => onAction('folder', e.target.value.trim()),
+              type: 'text', value: cfg.folder, placeholder: '/FridgeList', dataset: { key: 'folder' },
+              autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false',
+              onInput: (e) => onAction('folder', e.target.value.trim()),
             }),
           ),
           h('div', { class: 'actions' },

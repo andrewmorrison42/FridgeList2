@@ -34,12 +34,28 @@ export async function mount(root, { storage } = {}) {
   app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false };
 
   const onAction = async (action, ...args) => {
+    app.ui.notice = null;
+    try {
+      await perform(action, ...args);
+    } catch (err) {
+      // A safety net for the person holding the phone: a refused action says
+      // why, instead of silently doing nothing. It is not how refusals are
+      // meant to happen — a view should only offer what the phase permits — so
+      // the browser suite counts every one of these as a failure.
+      app.ui.notice = err.message;
+      app.ui.refusals = (app.ui.refusals ?? 0) + 1;
+    }
+    render();
+  };
+
+  const perform = async (action, ...args) => {
     switch (action) {
       case 'tab':
         // Leaving for another tab abandons the close confirmation. Otherwise
         // the confirmation shadows every screen and the only way out is to
         // answer it, which is not what tapping "Recipes" means.
         app.ui.confirmingClose = false;
+        if (app.ui.tab !== args[0]) window.scrollTo(0, 0);   // a new screen starts at its top
         app.ui.tab = args[0];
         location.hash = args[0];
         break;
@@ -80,10 +96,27 @@ export async function mount(root, { storage } = {}) {
       case 'syncNow':    await app.refresh(); break;
       case 'reloadLibrary': await loadLibraryInto(app); break;
     }
-    render();
   };
 
+  /**
+   * Redraw the screen from derived state.
+   *
+   * The whole screen is rebuilt, which destroys whatever element had focus.
+   * Before glitch #5 was fixed, every search box lost focus after the first key
+   * press — type "laksa", get "l". So the focused field (found again by its
+   * data-key) and the caret within it survive every redraw.
+   *
+   * Scroll position needs no help: the rebuild is synchronous, so the page
+   * never lays out at zero height and the browser keeps its place. (A reported
+   * "jump" on ticking turned out to be the test harness scrolling a box into
+   * view, not the app; test/ui guards the real behaviour.)
+   */
   function render() {
+    const active = document.activeElement;
+    const focusKey = active?.dataset?.key ?? null;
+    const caret = focusKey && typeof active.selectionStart === 'number'
+      ? [active.selectionStart, active.selectionEnd] : null;
+
     const view = TABS.find(([id]) => id === app.ui.tab)?.[2] ?? listView;
     clear(root).append(
       statusBar(app, { onAction }),
@@ -92,11 +125,21 @@ export async function mount(root, { storage } = {}) {
             h('div', { class: 'actions' },
               h('button', { class: 'primary', onClick: () => onAction('close') }, 'Finish anyway'),
               h('button', { onClick: () => onAction('cancelClose') }, 'Keep shopping')))
-        : h('main', {}, view(app, { onAction })),
+        : h('main', {},
+            app.ui.notice && h('div', { class: 'refusal', role: 'alert' }, h('p', {}, app.ui.notice)),
+            view(app, { onAction })),
       h('nav', {}, TABS.map(([id, label]) => h('button', {
         class: app.ui.tab === id ? 'on' : '', onClick: () => onAction('tab', id),
       }, label))),
     );
+
+    if (focusKey) {
+      const field = root.querySelector(`[data-key="${focusKey}"]`);
+      if (field) {
+        field.focus({ preventScroll: true });
+        if (caret) field.setSelectionRange(caret[0], caret[1]);
+      }
+    }
   }
 
   // Any change merged into local state re-renders. No view reads state once at

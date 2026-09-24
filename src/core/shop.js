@@ -78,6 +78,7 @@ export function permissions(events) {
     canGenerate: draft,            // §5.7 — regeneration is a draft activity
     canAddLines: phase !== 'closed',      // FR-SHOP-1
     canAddWaitList: phase !== 'closed',   // deliberate, purely additive
+    canRemoveWaitList: draft,             // removals wait for the shop to end (§5.9)
     canTick: phase === 'open',            // FR-LIST-5
     canLock: draft,
     canClose: phase === 'open',           // FR-SHOP-4

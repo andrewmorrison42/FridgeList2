@@ -123,13 +123,19 @@ Rules worth keeping as it grows — each enforced by a test, not by memory:
   render; they do not decide.
 - **Every property is asserted under variation** (`test/harness.js`) — skewed
   clocks, shuffled delivery, compacted or not — never against a single run.
-- **The tests must be able to fail.** `npm run mutate` reintroduces nineteen
-  specific defects and requires the suite to catch every one. Run it after any
+- **Test the product, not just the engine.** `npm run test:ui` drives the app in
+  a real browser at phone size — key-by-key typing, taps, scrolling — because a
+  person hits glitches the unit suite never sees. Never set a whole value in one
+  go (`fill()`); it hides exactly the glitches a thumb finds.
+- **The tests must be able to fail.** `npm run mutate` reintroduces thirty
+  specific defects and requires the suites to catch every one. Run it after any
   change to `src/core/` or `src/data/`. A surviving mutation is a rule the
   documents state and the tests do not check; a stale one means the code moved
   and the mutation must move with it.
 
 ```sh
-npm test             # ~90 tests, thousands of generated scenarios, ~3 s
-npm run mutate       # nineteen mutations, ~1 minute
+npm test             # the fast suite: ~100 tests, thousands of scenarios, ~3 s
+npm run test:ui      # the browser suite: the app as a person uses it, ~20 s
+npm run check        # both
+npm run mutate       # thirty mutations; each must be caught; several minutes
 ```

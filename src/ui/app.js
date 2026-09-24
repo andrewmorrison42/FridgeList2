@@ -99,7 +99,36 @@ export async function createApp({ storage } = {}) {
   let timer = null;
 
   /** Record events: local state and screen first, upload after (§7.1). */
-  const record = (events) => sync.record(events);
+  const record = (events) => {
+    const out = sync.record(events);
+    syncSoon();
+    return out;
+  };
+
+  // -- the sync loop (§7.3) ----------------------------------------------------
+  // Poll fast while shopping, lazily otherwise — and sync promptly after any
+  // local change. Before glitch #7 was fixed the loop only ever woke on its own
+  // timer: a tick waited for it, and the timer set during planning ran at the
+  // 60 s planning cadence, so for the first minute of every shop — exactly when
+  // two people split up — nothing was shared. A local write now wakes the loop,
+  // and every wake reschedules at the cadence the *current* phase calls for.
+  let loopRunning = false;
+  let inFlight = false;
+  let again = false;
+  let onTickFn = () => {};
+  const schedule = (ms) => {
+    clearTimeout(timer);
+    if (loopRunning) timer = setTimeout(cycle, ms);
+  };
+  async function cycle() {
+    if (inFlight) { again = true; return; }       // one sync at a time; run once more after
+    inFlight = true;
+    try { await app.refresh(); } catch { /* status() reports it */ }
+    inFlight = false;
+    onTickFn();
+    if (again) { again = false; schedule(0); } else schedule(sync.intervalMs());
+  }
+  function syncSoon() { schedule(250); }            // coalesces a burst of taps into one sync
 
   const app = {
     identity, store, sync, presence, storage, config, auth,
@@ -256,17 +285,14 @@ export async function createApp({ storage } = {}) {
       return sync.status();
     },
 
-    /** Poll fast while shopping, lazily otherwise (§7.3). */
+    /** Start syncing: now, then at the phase's cadence, and soon after any local change. */
     start(onTick = () => {}) {
-      const loop = async () => {
-        try { await app.refresh(); } catch { /* status() reports it */ }
-        onTick();
-        timer = setTimeout(loop, sync.intervalMs());
-      };
-      loop();
+      onTickFn = onTick;
+      loopRunning = true;
+      schedule(0);
     },
 
-    stop() { clearTimeout(timer); timer = null; },
+    stop() { loopRunning = false; clearTimeout(timer); timer = null; },
 
     setNickname(name) {
       local.set('nickname', name);

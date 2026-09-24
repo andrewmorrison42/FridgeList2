@@ -79,5 +79,7 @@ export function deviceIdentity() {
     id = 'd' + Math.random().toString(36).slice(2, 8);
     local.set('deviceId', id);
   }
-  return { id, nickname: local.get('nickname', id) };
+  // Unnamed until someone names it — not the random id, which read as
+  // gibberish ("d6yeg74") in Setup and on everyone's roster (glitch #17).
+  return { id, nickname: local.get('nickname', '') };
 }

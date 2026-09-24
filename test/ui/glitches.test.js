@@ -143,6 +143,54 @@ describe('as a person uses it', () => {
     await p.close();
   });
 
+  it('#14 — the close report puts the decision first, and groups what is missing', async () => {
+    const p = await phone(browser, server.url);
+    await shopping(p);
+    await p.tap(p.page.locator('header button', { hasText: 'Shopping is completed' }));
+    // The decision is reachable without scrolling past 57 names.
+    const finish = p.page.locator('main button', { hasText: 'Finish anyway' }).first();
+    const box = await finish.boundingBox();
+    expect(box.y + box.height).toBeLessThan(700);
+    // And what is missing is grouped the way the list is, with quantities.
+    expect(await p.page.locator('.close-report h3').count()).toBeGreaterThan(3);
+    expect(await p.page.locator('.close-report .qty').count()).toBeGreaterThan(10);
+    await p.close();
+  });
+
+  it('#15 — after the shop, this week\'s meals read as meals to cook, not as "carried over"', async () => {
+    const p = await phone(browser, server.url);
+    await p.app(() => { window.app.planRecipe('fish-laksa', 4); window.app.lockShop(); });
+    await p.app(() => window.app.closeShop());
+    await p.tab('Plan');
+    const text = await p.page.locator('main').textContent();
+    expect(text).not.toMatch(/carried over/i);
+    expect(text).toMatch(/to cook/i);
+    await p.close();
+  });
+
+  it('#19 — the printed list says which week it is for', async () => {
+    const p = await phone(browser, server.url);
+    await shopping(p);
+    await p.tab('List');
+    await p.page.emulateMedia({ media: 'print' });
+    const dated = p.page.locator('.print-only');
+    expect(await dated.isVisible()).toBe(true);
+    expect(await dated.textContent()).toMatch(/\d{1,2} [A-Z][a-z]{2}/);
+    await p.close();
+  });
+
+  it('#20 — during a shop, a meal can still be marked cooked from the Plan screen', async () => {
+    const p = await phone(browser, server.url);
+    await shopping(p);
+    await p.tab('Plan');
+    const cooked = p.page.locator('main button', { hasText: 'Cooked' }).first();
+    expect(await cooked.count()).toBe(1);
+    await p.tap(cooked);
+    expect(await p.app(() => [...window.app.selections.values()].filter((s) => s.status === 'cooked').length)).toBe(1);
+    expect(await p.app(() => window.app.ui.refusals ?? 0)).toBe(0);
+    await p.close();
+  });
+
   it('#9 — paste the client id, tap Connect once, and you are sent to sign in', async () => {
     const p = await phone(browser, server.url, { hash: '#settings' });
     let signIn = false;

@@ -12,71 +12,93 @@ import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
 import { K } from '../core/keys.js';
 
-const STATUS_LABEL = { [PLANNED]: 'Planned', [CARRIED]: 'Carried over', [FLAGGED]: 'Needs a decision', [COOKED]: 'Cooked' };
+// What each status means to a person. "Carried over" was accurate and
+// misleading: straight after a shop is completed, the meals just bought read as
+// carried over before anyone had started planning the next week (glitch #15).
+const STATUS_LABEL = {
+  [PLANNED]: 'Planned',
+  [CARRIED]: 'Bought last shop · not cooked yet',
+  [FLAGGED]: 'Bought two shops ago — cook it, remove it, or plan it again',
+  [COOKED]: 'Cooked',
+};
 
 // -- Plan -------------------------------------------------------------------
 
+/**
+ * The menu, laid out the way the household's week runs: meals already bought
+ * and waiting to be cooked, then meals planned for the next shop.
+ *
+ * During a shop the menu is settled (FR-SHOP-3), but it stays visible — a meal
+ * can still be marked cooked (FR-MENU-2), which the screen used to hide behind
+ * the refusal (glitch #20).
+ */
 export function planView(app, { onAction }) {
-  if (!app.can.canEditMenu) return refusal(app, 'canEditMenu', onAction) ?? h('p', {}, 'The menu is locked.');
-
   const { recipes } = app.library;
-  const sels = app.selections;
+  const shopId = app.shop.id;
+  const editable = app.can.canEditMenu;
   const history = app.history;
   const search = app.ui.search ?? '';
+  const name = (id) => recipes.get(id)?.name ?? id;
+  const byName = (a, b) => name(a.recipeId).localeCompare(name(b.recipeId));
 
-  const chosen = [...sels.values()].sort((a, b) =>
-    (recipes.get(a.recipeId)?.name ?? a.recipeId).localeCompare(recipes.get(b.recipeId)?.name ?? b.recipeId));
+  const sels = [...app.selections.values()];
+  const toCook = sels.filter((s) => s.plannedFor !== shopId).sort(byName);
+  const planned = sels.filter((s) => s.plannedFor === shopId).sort(byName);
+
+  const row = (sel) => h('li', { class: `sel ${sel.status}` },
+    h('div', { class: 'grow' },
+      h('strong', {}, name(sel.recipeId)),
+      h('span', { class: 'sel-status' }, STATUS_LABEL[sel.status]),
+    ),
+    // How many it is for (FR-MENU-1), adjustable while it is still being
+    // planned; a meal already bought is re-planned to change it.
+    editable && sel.status === PLANNED
+      ? h('span', { class: 'stepper', 'aria-label': 'servings' },
+          h('button', { class: 'step', 'aria-label': 'fewer', disabled: sel.servings <= 1,
+            onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings - 1) }, '−'),
+          h('span', { class: 'servings' }, `${sel.servings}`),
+          h('button', { class: 'step', 'aria-label': 'more',
+            onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings + 1) }, '+'))
+      : h('span', { class: 'servings', title: 'servings' }, `for ${sel.servings}`),
+    sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked'),
+    editable && h('button', { onClick: () => onAction('unplan', sel.recipeId, sel.plannedFor) }, 'Remove'),
+  );
+
   const matches = [...recipes.values()]
     .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, 60);
 
   return h('section', {},
-    h('h1', {}, "This week's menu"),
+    !editable && refusal(app, 'canEditMenu', onAction),
 
-    chosen.length > 0 && h('ul', { class: 'chosen' },
-      chosen.map((sel) => {
-        const recipe = recipes.get(sel.recipeId);
-        return h('li', { class: `sel ${sel.status}` },
-          h('div', { class: 'grow' },
-            h('strong', {}, recipe?.name ?? sel.recipeId),
-            h('span', { class: 'sel-status' }, STATUS_LABEL[sel.status]),
-            // A Flagged entry has carried once already and must be resolved,
-            // not carried silently again (FR-MENU-5).
-            sel.status === FLAGGED && h('span', { class: 'nudge' },
-              'Cook it, remove it, or plan it again'),
-          ),
-          // How many it is for (FR-MENU-1), adjustable while it is still this
-          // week's plan; a carried meal is re-planned to change it.
-          sel.status === PLANNED
-            ? h('span', { class: 'stepper', 'aria-label': 'servings' },
-                h('button', { class: 'step', 'aria-label': 'fewer', disabled: sel.servings <= 1,
-                  onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings - 1) }, '−'),
-                h('span', { class: 'servings' }, `${sel.servings}`),
-                h('button', { class: 'step', 'aria-label': 'more',
-                  onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings + 1) }, '+'))
-            : h('span', { class: 'servings' }, `${sel.servings}`),
-          sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked'),
-          h('button', { onClick: () => onAction('unplan', sel.recipeId, sel.plannedFor) }, 'Remove'),
-        );
-      }),
+    toCook.length > 0 && h('div', {},
+      h('h1', {}, 'To cook — already bought'),
+      h('ul', { class: 'chosen' }, toCook.map(row)),
     ),
 
-    h('h2', {}, 'Add a recipe'),
-    h('input', {
-      type: 'search', placeholder: 'Search recipes', value: search, dataset: { key: 'plan-search' },
-      onInput: (e) => onAction('search', e.target.value),
-    }),
-    h('ul', { class: 'picker' },
-      matches.map((r) => h('li', {},
-        h('div', { class: 'grow' },
-          h('strong', {}, r.name),
-          // The cook-history signal belongs where recipes are chosen, not only
-          // in a separate history view (FR-REC-4).
-          h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
-        ),
-        h('button', { onClick: () => onAction('plan', r.id, r.servings) }, 'Add'),
-      )),
+    h('h1', {}, app.shop.phase === 'open' ? 'Being bought now' : 'Planned for the next shop'),
+    planned.length === 0
+      ? h('p', { class: 'empty' }, editable ? 'Nothing planned yet — add a recipe below.' : 'Nothing was planned for this shop.')
+      : h('ul', { class: 'chosen' }, planned.map(row)),
+
+    editable && h('div', {},
+      h('h2', {}, 'Add a recipe'),
+      h('input', {
+        type: 'search', placeholder: 'Search recipes', value: search, dataset: { key: 'plan-search' },
+        onInput: (e) => onAction('search', e.target.value),
+      }),
+      h('ul', { class: 'picker' },
+        matches.map((r) => h('li', {},
+          h('div', { class: 'grow' },
+            h('strong', {}, r.name),
+            // The cook-history signal belongs where recipes are chosen, not
+            // only in a separate history view (FR-REC-4).
+            h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
+          ),
+          h('button', { onClick: () => onAction('plan', r.id, r.servings) }, 'Add'),
+        )),
+      ),
     ),
   );
 }
@@ -94,8 +116,12 @@ export function listView(app, { onAction }) {
   const grouped = groupForDisplay(visible, { categoryOrder });
   const remaining = visible.filter((l) => !done(l)).length;
 
+  // On the fridge door, a list with no date could be any week's (glitch #19).
+  const printed = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
   return h('section', { class: 'list' },
     h('h1', {}, phase === 'draft' ? 'Shopping list (planning)' : 'Shopping list'),
+    h('p', { class: 'print-only' }, `Printed ${printed}`),
     h('p', { class: 'count' }, `${remaining} of ${visible.length} to get`),
 
     phase === 'draft' && h('p', { class: 'hint' },

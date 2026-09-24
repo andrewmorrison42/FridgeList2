@@ -116,8 +116,10 @@ export function explainRefusal(events, action) {
   const { id, phase } = currentShop(events);
   if (phase === 'open' && ['canEditMenu', 'canGenerate', 'canRemoveLines'].includes(action)) {
     return {
-      reason: `Shopping is still in progress (${id}).`,
-      remedy: 'Mark the shop complete to plan the next one.',
+      // No internal id in words a person reads (glitch #16). The remedy is
+      // the same action, with the same name, as the header's button.
+      reason: 'Shopping is still in progress, so the menu is settled until it is completed.',
+      remedy: 'Shopping is completed',
       remedyAction: 'closeShop',
       shopId: id,
     };

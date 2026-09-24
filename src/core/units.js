@@ -53,12 +53,16 @@ export function formatQuantity(quantity, unit) {
     const n = Math.round(quantity / 100) / 10;                 // one decimal place
     return `${Number.isInteger(n) ? n : n.toFixed(1)} ${big}`;
   }
+  // Counted things are bought whole: 1.35 lemons is 2 lemons, and three
+  // thirds of an onion is one onion, not two (hence the small tolerance for
+  // floating-point sums). Glitch #13. The exact figure is kept underneath;
+  // only what is shown rounds.
+  if (unit === 'qty') return `${Math.max(1, Math.ceil(quantity - 1e-9))}`;
   const rounded =
-    unit === 'qty' ? Math.ceil(quantity * 100) / 100
-    : quantity >= 100 ? Math.round(quantity / 10) * 10
+    quantity >= 100 ? Math.round(quantity / 10) * 10
     : Math.round(quantity);
   const n = Number.isInteger(rounded) ? rounded : Number(rounded.toFixed(2));
-  return unit === 'qty' ? `${n}` : `${n} ${unit}`;
+  return `${n} ${unit}`;
 }
 
 /**

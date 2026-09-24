@@ -61,7 +61,7 @@ export async function createApp({ storage } = {}) {
   // own storage (tests, a future backend) is assumed to share it.
   const shared = storageProvided || config.storageMode === 'onedrive';
   const sync = createSync({ storage, store, deviceId: identity.id, shared });
-  const presence = createPresence({ storage, deviceId: identity.id, nickname: identity.nickname });
+  const presence = createPresence({ storage, deviceId: identity.id, nickname: () => identity.nickname });
 
   // Every new event is persisted — including ones that change nothing — so a
   // closed tab loses nothing and the next open is instant (§7.1). Only the new
@@ -328,19 +328,30 @@ export async function createApp({ storage } = {}) {
       config.storageMode = 'local';
     },
 
-    /** Load a library snapshot (the import's output) into this device. §12. */
+    /**
+     * Load a library snapshot (the import's output) into this device. §12.
+     *
+     * Additive only: it adds what this device does not have and never touches
+     * what it does. A reload used to re-save every recipe as the imported
+     * version, and — last save wins — silently undo every edit made in the app
+     * since (glitch #18). Now a reload cannot lose anything.
+     */
     async loadLibrary(json) {
+      const { recipes, ingredients } = library(store.state);
+      const phase = currentShop(store.state).phase;
       const events = [];
       for (const ing of json.ingredients ?? []) {
-        events.push(device.emit('ingredient.upsert', { ingredientId: ing.id, ingredient: ing }, 'draft'));
+        if (ingredients.has(String(ing.id))) continue;
+        events.push(device.emit('ingredient.upsert', { ingredientId: ing.id, ingredient: ing }, phase));
       }
       for (const r of json.recipes ?? []) {
-        events.push(device.emit('recipe.upsert', { recipeId: r.id, recipe: r }, 'draft'));
+        if (recipes.has(r.id)) continue;
+        events.push(device.emit('recipe.upsert', { recipeId: r.id, recipe: r }, phase));
       }
-      if (json.trips?.length) {
-        events.push(device.emit('history.imported', { trips: json.trips }, 'draft'));
+      if (json.trips?.length && !store.state.get(K.historyImported())) {
+        events.push(device.emit('history.imported', { trips: json.trips }, phase));
       }
-      return record(events);
+      return events.length ? record(events) : [];
     },
   };
 

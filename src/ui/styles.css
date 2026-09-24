@@ -143,6 +143,10 @@ nav {
 nav button { flex: 1; border: none; border-radius: 0; min-height: 56px; color: var(--muted); }
 nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 0 var(--accent); }
 
+/* Shown only on paper. Declared before the print block so that block wins on
+   paper — placed after it, this rule hid the printed date too. */
+.print-only { display: none; }
+
 /* --- print: the list goes on the fridge door (§10.2) -------------------- */
 
 @media print {
@@ -159,6 +163,7 @@ nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 
   li.done label::before { content: "☑"; }
   input[type="checkbox"] { display: none; }
   .carry { border: 1px solid var(--line); }
+  .print-only { display: block; color: var(--muted); font-size: 9pt; margin-bottom: 6pt; }
 }
 
 /* --- settings ----------------------------------------------------------- */

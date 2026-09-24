@@ -14,6 +14,9 @@ export function presencePath(shopId, deviceId) {
 
 export function createPresence({ storage, deviceId, nickname, now = () => Date.now() }) {
   let joined = false;
+  // Read at each heartbeat, so renaming the phone reaches the others straight
+  // away rather than after a reload.
+  const nameNow = () => (typeof nickname === 'function' ? nickname() : nickname) || '';
 
   return {
     get joined() { return joined; },
@@ -36,7 +39,7 @@ export function createPresence({ storage, deviceId, nickname, now = () => Date.n
     /** Its own file, per §4. Nobody writes anyone else's presence. */
     async beat(shopId, { syncStatus = {}, silent = false } = {}) {
       await storage.write(presencePath(shopId, deviceId), JSON.stringify({
-        deviceId, nickname, at: now(), silent,
+        deviceId, nickname: nameNow(), at: now(), silent,
         unsent: syncStatus.unsent ?? 0,
         lastPullAt: syncStatus.lastPullAt ?? null,
       }));
@@ -55,7 +58,7 @@ export function createPresence({ storage, deviceId, nickname, now = () => Date.n
         if (ageMs > DROP_MS) continue;              // dropped off; cannot hold up a close
         out.push({
           deviceId: p.deviceId,
-          nickname: p.nickname ?? p.deviceId,
+          nickname: p.nickname || 'A phone with no name',
           isSelf: p.deviceId === deviceId,
           silent: !!p.silent,
           ageMs,

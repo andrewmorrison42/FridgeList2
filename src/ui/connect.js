@@ -76,7 +76,6 @@ export function connectView(app, { onAction }) {
     h('p', { class: 'hint' },
       `${app.library.recipes.size} recipes, ${app.library.ingredients.size} ingredients.`),
     h('div', { class: 'actions' },
-      h('button', { onClick: () => onAction('reloadLibrary') }, 'Reload from data/library.json'),
       h('button', { onClick: () => window.print() }, 'Print the list'),
     ),
 

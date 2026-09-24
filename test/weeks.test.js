@@ -145,3 +145,28 @@ describe('servings (FR-MENU-1 — unbuilt until v0.6)', () => {
     expect(() => h.app.setServings('laksa', h.sel('laksa').plannedFor, 8)).toThrow(/not permitted while a shop is open/);
   });
 });
+
+describe('glitches found on the screenshot sheet', () => {
+  it('#17 — a phone nobody has named has no name, not a random id', async () => {
+    const { deviceIdentity } = await import('../src/data/persist.js');
+    expect(deviceIdentity().nickname).toBe('');
+  });
+
+  it('#18 — loading the library again never overwrites a recipe edited in the app', async () => {
+    const h = await household();
+    const edited = { ...h.app.library.recipes.get('laksa'), name: 'Fish Laksa (our way)', servings: 6 };
+    h.app.store.apply(
+      (await import('../src/core/events.js')).createDevice('cook').observe(h.app.store.events)
+        .emit('recipe.upsert', { recipeId: 'laksa', recipe: edited }, 'draft'),
+    );
+    await h.app.loadLibrary(LIBRARY);                 // e.g. the first-run bootstrap, run again
+    expect(h.app.library.recipes.get('laksa').name).toBe('Fish Laksa (our way)');
+  });
+
+  it('#18 — ...but a recipe the device does not have yet is still added', async () => {
+    const h = await household();
+    await h.app.loadLibrary({ ...LIBRARY, recipes: [...LIBRARY.recipes,
+      { id: 'soup', name: 'Soup', servings: 4, lines: [{ ingredientId: 'noodles', quantity: 100 }] }] });
+    expect(h.app.library.recipes.has('soup')).toBe(true);
+  });
+});

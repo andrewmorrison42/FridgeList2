@@ -95,7 +95,6 @@ export async function mount(root, { storage } = {}) {
         break;
       case 'signOut':    app.disconnect(); location.reload(); break;
       case 'syncNow':    await app.refresh(); break;
-      case 'reloadLibrary': await loadLibraryInto(app); break;
     }
   };
 
@@ -122,10 +121,10 @@ export async function mount(root, { storage } = {}) {
     clear(root).append(
       statusBar(app, { onAction }),
       app.ui.confirmingClose
-        ? h('main', {}, closeReport(app),
+        ? h('main', {}, closeReport(app,
             h('div', { class: 'actions' },
               h('button', { class: 'primary', onClick: () => onAction('close') }, 'Finish anyway'),
-              h('button', { onClick: () => onAction('cancelClose') }, 'Keep shopping')))
+              h('button', { onClick: () => onAction('cancelClose') }, 'Keep shopping'))))
         : h('main', {},
             app.ui.notice && h('div', { class: 'refusal', role: 'alert' }, h('p', {}, app.ui.notice)),
             view(app, { onAction })),

@@ -973,6 +973,11 @@ alphabetical, never insertion order.
 
 A line whose ingredient carries a preference note displays it (FR-ING-4).
 
+Quantities are shown the way things are bought: counted items **rounded up to
+whole** (1.35 lemons is 2 lemons — you cannot buy 0.75 of a capsicum), and large
+amounts as kilograms and litres. Only the display rounds; the exact figure is
+kept underneath, so summing two recipes' halves still makes one.
+
 ### 10.2 Printing
 
 A `@media print` stylesheet renders the grouped list for the fridge door —
@@ -1117,6 +1122,7 @@ Two findings from that review bear on the design rather than on the data:
 | Quantities | 1,269 of 5,561 are strings, the rest numbers. Coerce to number; fail loudly on anything unparseable |
 | Units | The source's `quantity` is **already in the shopping unit** ("6 cups of stock" is stored as 1,500 mL) and is kept exactly, with no cooking unit — no conversion needed. `displayQty`/`displayUnit` keep how the recipe reads, for display only. An earlier import kept 1,500 but labelled it "cup", so every cup or spoon line was converted twice — 2,457 lines, 4× to 250× (glitch #1). `test/migration.test.js` now checks every line against the source |
 | Staples | From `settings.staples` + `settings.stapleQty` onto the ingredient (§9) |
+| Loading on a device | **Additive only**: a load adds what the device lacks and never re-saves what it has. A full re-save would, by last-save-wins, silently undo every recipe edited in the app since (glitch #18) |
 | Trip history | **Recipes selected and timestamp only** (Round 6); line detail discarded. Two-year cut applied |
 | Anomalies | One ingredient has an empty shopping unit — **flagged in a report, not auto-fixed** |
 
@@ -1254,6 +1260,21 @@ press. The helpers do not offer it. The suite covers header honesty, typing in
 each search box, scroll behaviour, prompt sync at the start of a shop, a sweep
 that taps every visible button in every phase and requires no error and no
 refusal, and one-tap Connect after pasting the client id.
+
+**The screenshot sheet** (`npm run screens`) photographs every screen, in each
+phase, at two phone widths, in both themes, on paper, and into the following
+week, for a person to read. Some glitches no assertion anyone thought to write
+will catch; each of these was found only by looking at the sheet: counted items
+shown as fractions (*1.35 lemons, 36.21 garlic*); a CSS class shared by the
+header and each meal's label, which gave every label the header's sticky
+position and border; text run together (*"Afghan Biscuitsnever"*); a close
+report that buried "Finish anyway" beneath 57 ungrouped names; the week's meals
+reading "carried over" the moment the shop was completed; an internal id
+(*"shop-0001"*) and a random device id (*"d6yeg74"*) shown to people; an undated
+printout; and a Setup button that would silently overwrite every recipe edited
+in the app. Where a class of glitch *can* be checked mechanically, the suite now
+does — every row on every screen is checked for overlapping elements — but the
+sheet stays, because the next glitch will be one nobody has thought to assert.
 
 A harness is itself something that can lie. One reported glitch — a 400 px jump
 on ticking a line — turned out to be the walkthrough tapping a checkbox hidden

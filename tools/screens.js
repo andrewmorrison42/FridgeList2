@@ -31,8 +31,18 @@ for (const width of [375, 320]) {
     await shoot('close-report');
     await p.page.locator('button', { hasText: 'Keep shopping' }).tap();
     await p.tab('List');
-    await p.page.emulateMedia({ media: 'print', colorScheme: 'light' });
+    await p.page.emulateMedia({ media: 'print', colorScheme: theme });
     await shoot('print');
+    await p.page.emulateMedia({ media: 'screen', colorScheme: theme });
+
+    // The next week: the shop completed, two meals cooked, the rest still to
+    // cook. Glitch #15 lived here — every earlier sheet stopped at week one.
+    await p.app(async () => {
+      const sels = [...window.app.selections.values()].slice(0, 2);
+      for (const s of sels) window.app.markCooked(s.recipeId, s.plannedFor);
+      await window.app.closeShop();
+    });
+    for (const tab of ['Plan', 'List']) { await p.tab(tab); await shoot(`next-week-${tab.toLowerCase()}`); }
     await p.close();
   }
 }

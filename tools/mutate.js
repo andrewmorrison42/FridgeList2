@@ -193,6 +193,52 @@ const MUTATIONS = [
     find: "              onInput: (e) => onAction('clientId', e.target.value.trim()),",
     replace: "              onChange: (e) => onAction('clientId', e.target.value.trim())," },
 
+  // -- found on the screenshot sheet (#13-#20) -------------------------------
+  { name: 'fractional-counts',
+    rule: 'Counted things are bought whole (glitch #13)',
+    file: 'src/core/units.js',
+    find: "  if (unit === 'qty') return `${Math.max(1, Math.ceil(quantity - 1e-9))}`;",
+    replace: '' },
+  { name: 'internal-id-shown',
+    rule: 'Words for a person, not internal ids (glitch #16)',
+    file: 'src/core/shop.js',
+    find: "      reason: 'Shopping is still in progress, so the menu is settled until it is completed.',",
+    replace: '      reason: `Shopping is still in progress (${id}).`,' },
+  { name: 'random-device-name',
+    rule: 'A phone nobody has named has no name (glitch #17)',
+    file: 'src/data/persist.js',
+    find: "  return { id, nickname: local.get('nickname', '') };",
+    replace: "  return { id, nickname: local.get('nickname', id) };" },
+  { name: 'library-load-overwrites',
+    rule: 'Loading the library never overwrites an edited recipe (glitch #18)',
+    file: 'src/ui/app.js',
+    find: '        if (recipes.has(r.id)) continue;',
+    replace: '' },
+  { name: 'close-decision-buried', suite: 'ui',
+    rule: 'The close report puts the decision first (glitch #14)',
+    file: 'src/ui/status.js',
+    // Two edits: take the buttons from the top, put them after the list.
+    edits: [
+      ['    actions,\n', ''],
+      ["        h('span', { class: 'qty' }, formatQuantity(l.qty, l.unit)),\n      ))),\n    )),\n  );",
+       "        h('span', { class: 'qty' }, formatQuantity(l.qty, l.unit)),\n      ))),\n    )),\n    actions,\n  );"],
+    ] },
+  { name: 'meals-read-carried', suite: 'ui',
+    rule: "This week's meals read as meals to cook (glitch #15)",
+    file: 'src/ui/views.js',
+    find: "  [CARRIED]: 'Bought last shop · not cooked yet',",
+    replace: "  [CARRIED]: 'Carried over'," },
+  { name: 'print-undated', suite: 'ui',
+    rule: 'The printed list is dated (glitch #19)',
+    file: 'src/ui/views.js',
+    find: "    h('p', { class: 'print-only' }, `Printed ${printed}`),",
+    replace: '' },
+  { name: 'cooked-hidden-while-shopping', suite: 'ui',
+    rule: 'A meal can be marked cooked during a shop (glitch #20, FR-MENU-2)',
+    file: 'src/ui/views.js',
+    find: "    sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked'),",
+    replace: "    editable && sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked')," },
+
   // -- the shell (#7) -------------------------------------------------------
   { name: 'shell-missing-module',
     rule: 'Every module is cached for offline use (#7)',
@@ -225,14 +271,22 @@ if (!runSuite(chosen.some((m) => m.suite === 'ui'))) {
 const results = [];
 for (const m of chosen) {
   const original = readFileSync(m.file, 'utf8');
-  const hits = original.split(m.find).length - 1;
-  if (hits !== 1) {
-    results.push({ ...m, outcome: 'STALE', detail: `target found ${hits} times in ${m.file}` });
+  // A mutation is one edit (find/replace) or several applied in order (edits).
+  const edits = m.edits ?? [[m.find, m.replace]];
+  let mutated = original;
+  let stale = null;
+  for (const [find, replace] of edits) {
+    const hits = mutated.split(find).length - 1;
+    if (hits !== 1) { stale = `target found ${hits} times in ${m.file}`; break; }
+    mutated = mutated.replace(find, replace);
+  }
+  if (stale) {
+    results.push({ ...m, outcome: 'STALE', detail: stale });
     continue;
   }
   let killed;
   try {
-    writeFileSync(m.file, original.replace(m.find, m.replace));
+    writeFileSync(m.file, mutated);
     killed = !runSuite(m.suite === 'ui');
   } finally {
     writeFileSync(m.file, original);        // always restore, whatever happened

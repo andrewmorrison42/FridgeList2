@@ -2,6 +2,8 @@
 // action the current phase allows. §8.2, §8.3, FR-SYNC-2, FR-SHOP-4.
 
 import { h } from './dom.js';
+import { groupForDisplay } from '../core/generate.js';
+import { formatQuantity } from '../core/units.js';
 
 export function statusBar(app, { onAction }) {
   const s = app.staleness;
@@ -10,7 +12,7 @@ export function statusBar(app, { onAction }) {
 
   return h('header', { class: `status ${s.warn ? 'warn' : ''}` },
     h('div', { class: 'status-row' },
-      h('span', { class: 'phase', title: id },
+      h('span', { class: 'phase' },
         phase === 'draft' ? 'Planning' : phase === 'open' ? 'Shopping' : 'Finished'),
       // Never present stale data indistinguishably from current data. A brief
       // lag is fine and is stated; a confident-looking lie is the defect.
@@ -51,21 +53,25 @@ export function refusal(app, action, onAction) {
   );
 }
 
-/** Shown before finishing: what nobody ticked, and who might not have synced. */
-export function closeReport(app) {
+/**
+ * Shown before finishing: what nobody ticked, and who might not have synced.
+ *
+ * The decision comes first. It used to sit under every unticked name — 57 of
+ * them, ungrouped, without quantities — so finishing meant scrolling past the
+ * whole list (glitch #14). What is missing is now grouped the way the list is.
+ */
+export function closeReport(app, actions) {
   const outstanding = app.outstanding();
   const stale = app.roster.filter((r) => r.stale && !r.isSelf);
   const s = app.staleness;
+  const n = outstanding.length;
 
   return h('div', { class: 'close-report' },
     h('h2', {}, 'Before finishing'),
-
-    outstanding.length === 0
+    n === 0
       ? h('p', { class: 'ok' }, 'Everything on the list is ticked.')
-      : h('div', {},
-          h('p', {}, `${outstanding.length} item(s) nobody has ticked:`),
-          h('ul', {}, outstanding.map((l) => h('li', {}, l.name))),
-        ),
+      : h('p', {}, `${n} ${n === 1 ? 'thing' : 'things'} nobody has ticked. Finish anyway, or keep shopping.`),
+    actions,
 
     // Informed override, never a silent one, and never a hard block a flat
     // battery can strand you behind.
@@ -74,5 +80,15 @@ export function closeReport(app) {
 
     s.selfStale && h('p', { class: 'warn-text' },
       'Your own device is not up to date, so this report may be wrong.'),
+
+    n > 0 && groupForDisplay(outstanding, {
+      categoryOrder: ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'],
+    }).map((group) => h('div', { class: 'group' },
+      h('h3', {}, group.category),
+      h('ul', {}, group.aisles.flatMap((a) => a.lines).map((l) => h('li', {},
+        h('span', { class: 'name' }, l.name),
+        h('span', { class: 'qty' }, formatQuantity(l.qty, l.unit)),
+      ))),
+    )),
   );
 }

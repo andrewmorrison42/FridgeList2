@@ -45,7 +45,7 @@ describe('units (FR-ING-1)', () => {
   });
 
   it('formats for a supermarket, not a laboratory', () => {
-    expect(formatQuantity(2.5, 'qty')).toBe('2.5');
+    expect(formatQuantity(2, 'qty')).toBe('2');
     expect(formatQuantity(63.2, 'g')).toBe('63 g');
     expect(formatQuantity(430, 'mL')).toBe('430 mL');
   });
@@ -56,6 +56,13 @@ describe('units (FR-ING-1)', () => {
     expect(formatQuantity(1500, 'g')).toBe('1.5 kg');
     expect(formatQuantity(1013.4, 'g')).toBe('1 kg');
     expect(formatQuantity(950, 'g')).toBe('950 g');        // under a kilo stays in grams
+  });
+
+  it('counted things are bought whole: 1.35 lemons is 2 lemons (glitch #13)', () => {
+    expect(formatQuantity(1.35, 'qty')).toBe('2');
+    expect(formatQuantity(0.75, 'qty')).toBe('1');
+    expect(formatQuantity(36.21, 'qty')).toBe('37');
+    expect(formatQuantity(3, 'qty')).toBe('3');
   });
 
   it('a recipe line reads the way the recipe was written (glitch #12)', () => {
@@ -149,6 +156,8 @@ describe('shop chain (§8.1, P7)', () => {
     const refusal = explainRefusal(events, 'canEditMenu');
     expect(refusal.shopId).toBe(GENESIS_SHOP);
     expect(refusal.remedyAction).toBe('closeShop');   // never a bare refusal
+    // Words for a person, not internal ids (glitch #16).
+    expect(`${refusal.reason} ${refusal.remedy}`).not.toMatch(/shop-\d/);
   });
 });
 

@@ -1226,7 +1226,7 @@ hold in every one.
 | **P11** | **Over any run of weeks, the menu stays sane** — no recipe twice, nothing cooked in a past week lingering, uncooked meals carried then flagged. | §9.1, `test/weeks.test.js` |
 | **P12** | **The migration equals its source** — every imported line, at its recipe's own servings, yields exactly the quantity the household's data says. | §12, `test/migration.test.js` |
 | **P10** | **The incremental store equals a full merge** — values and deciding events — for any delivery order and batching. | §11.1, `test/store.test.js` |
-| **P8** | **Wait List closure.** A Wait List item whose line was **done** in a completed shop it was on the list for is absent afterwards; one not ticked, or added after that shop, is still present; completing a shop never throws. | FR-LIST-7, FR-WAIT-2, `test/weeks.test.js` |
+| **P8** | **Wait List closure.** A Wait List item whose line was **done** in a completed shop it was on the list for is absent afterwards; one not ticked, or added after that shop, is still present; completing a shop never throws. Asserted across 2-4 phones, skewed clocks, shuffled delivery and compaction, against an oracle built from what each phone had seen. | FR-LIST-7, FR-WAIT-2, `test/p8.test.js`, `test/weeks.test.js` |
 
 **Every property listed here is named by a test**, and `test/docs.test.js` fails
 otherwise. P4 and P8 were listed for several versions and never written, and a

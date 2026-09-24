@@ -5,12 +5,14 @@
 // never served from here — a cached copy of someone's shopping list is exactly
 // the "stale data presented as current" that FR-SYNC-2 forbids.
 
-const CACHE = 'fridgelist-v1';
+// Bump whenever SHELL changes, so installed copies re-install and pick it up.
+// test/shell.test.js checks SHELL against the files that actually exist.
+const CACHE = 'fridgelist-v2';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',
   './src/ui/views.js', './src/ui/status.js', './src/ui/connect.js',
-  './src/core/events.js', './src/core/merge.js', './src/core/store.js',
+  './src/core/events.js', './src/core/merge.js', './src/core/store.js', './src/core/keys.js',
   './src/core/units.js', './src/core/generate.js', './src/core/carryover.js',
   './src/core/shop.js', './src/core/library.js',
   './src/data/storage.js', './src/data/sync.js', './src/data/presence.js',

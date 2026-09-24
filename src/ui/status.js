@@ -14,7 +14,7 @@ export function statusBar(app, { onAction }) {
         phase === 'draft' ? 'Planning' : phase === 'open' ? 'Shopping' : 'Finished'),
       // Never present stale data indistinguishably from current data. A brief
       // lag is fine and is stated; a confident-looking lie is the defect.
-      h('span', { class: `sync ${s.selfStale ? 'stale' : ''}` }, s.selfText),
+      h('span', { class: `sync ${s.selfStale ? 'stale' : ''} ${s.local ? 'local' : ''}` }, s.selfText),
     ),
 
     s.others.length > 0 && h('div', { class: 'roster' },

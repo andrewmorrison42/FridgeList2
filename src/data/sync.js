@@ -24,7 +24,13 @@ export function pathFor(event, deviceId) {
     : `state/log/${deviceId}.jsonl`;
 }
 
-export function createSync({ storage, store, deviceId, now = () => Date.now() }) {
+/**
+ * `shared` says whether `storage` actually reaches other devices. The in-memory
+ * backend a device uses before OneDrive is set up reaches nothing, and a device
+ * talking to it must not say it is "synced" (glitch #4). Tests that share one
+ * in-memory backend between simulated phones leave it true.
+ */
+export function createSync({ storage, store, deviceId, now = () => Date.now(), shared = true }) {
   const etags = new Map();          // path -> last etag seen
   const snapshotSeq = new Map();    // path prefix -> n
   let cursor = undefined;
@@ -171,6 +177,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
     const { phase } = currentShop(store.state);
     return {
       deviceId,
+      shared,
       phase,
       unsent: unsent.length,
       // Separated because they mean different things to a person: ticks not yet

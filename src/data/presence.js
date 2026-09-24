@@ -79,6 +79,15 @@ export function createPresence({ storage, deviceId, nickname, now = () => Date.n
  * defect — so when sync state is unknown, this says unknown.
  */
 export function staleness(syncStatus, roster) {
+  // Before this device is connected to anything, "synced just now" would be a
+  // lie: nobody else can see this list. Say so plainly. It is not a fault —
+  // it is the state before setup — so it informs rather than warns.
+  if (syncStatus.shared === false) {
+    return {
+      local: true, selfStale: false, unreadable: [], others: [], warn: false, warnText: null,
+      selfText: 'on this device only · not shared',
+    };
+  }
   const others = roster.filter((r) => !r.isSelf);
   const selfAge = syncStatus.ageMs;
   // Unsent *shop* events mean this device is holding ticks nobody else can

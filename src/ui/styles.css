@@ -54,6 +54,7 @@ small { color: var(--muted); }
 .phase { font-weight: 650; }
 .sync { color: var(--muted); font-size: .82rem; }
 .sync.stale { color: var(--warn); font-weight: 600; }
+.sync.local { font-style: italic; }
 .roster { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; }
 .who { font-size: .78rem; color: var(--muted); }
 .who.stale { color: var(--warn); font-weight: 600; }

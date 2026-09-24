@@ -245,3 +245,19 @@ describe('after a reload (review #6)', () => {
     expect(sync.status().unsent).toBe(0);
   });
 });
+
+describe('a device connected to nothing (glitch #4, FR-SYNC-2)', () => {
+  it('never says "synced" — it says the list is on this device only', () => {
+    const s = staleness({ shared: false, ageMs: 0, unsent: 3, unsentShop: 1 }, []);
+    expect(s.selfText).not.toMatch(/sync/i);
+    expect(s.selfText).toMatch(/this device only/i);
+  });
+
+  it('is what a fresh app, before OneDrive is set up, actually shows', async () => {
+    globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    const { createApp } = await import('../src/ui/app.js');
+    const app = await createApp();                     // no storage passed, nothing configured
+    await app.refresh();
+    expect(app.staleness.selfText).toMatch(/this device only/i);
+  });
+});

@@ -31,6 +31,7 @@ export function readConfig() {
 }
 
 export async function createApp({ storage } = {}) {
+  const storageProvided = !!storage;
   const identity = deviceIdentity();
   const config = readConfig();
 
@@ -56,7 +57,10 @@ export async function createApp({ storage } = {}) {
   const device = createDevice(identity.id);
   device.observe(store.events);
 
-  const sync = createSync({ storage, store, deviceId: identity.id });
+  // Shared only once OneDrive is actually connected; a caller that supplies its
+  // own storage (tests, a future backend) is assumed to share it.
+  const shared = storageProvided || config.storageMode === 'onedrive';
+  const sync = createSync({ storage, store, deviceId: identity.id, shared });
   const presence = createPresence({ storage, deviceId: identity.id, nickname: identity.nickname });
 
   // Every new event is persisted — including ones that change nothing — so a

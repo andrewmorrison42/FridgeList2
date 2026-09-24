@@ -113,9 +113,23 @@ tools/       one-off migration
 test/        properties, domain examples, integration, storage contract
 ```
 
-Two rules worth keeping as it grows:
+Rules worth keeping as it grows — each enforced by a test, not by memory:
 
 - **Every merge decision lives in `src/core/merge.js`.** A resolution made
   anywhere else is a decision no property test is watching.
+- **Every register key is built and parsed in `src/core/keys.js`.** A test fails
+  if a key is hand-built anywhere else.
+- **The list is derived in `src/core/generate.js` and nowhere else.** Views
+  render; they do not decide.
 - **Every property is asserted under variation** (`test/harness.js`) — skewed
   clocks, shuffled delivery, compacted or not — never against a single run.
+- **The tests must be able to fail.** `npm run mutate` reintroduces nineteen
+  specific defects and requires the suite to catch every one. Run it after any
+  change to `src/core/` or `src/data/`. A surviving mutation is a rule the
+  documents state and the tests do not check; a stale one means the code moved
+  and the mutation must move with it.
+
+```sh
+npm test             # ~90 tests, thousands of generated scenarios, ~3 s
+npm run mutate       # nineteen mutations, ~1 minute
+```

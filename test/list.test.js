@@ -103,7 +103,22 @@ describe('the list, as a person sees it (review #2)', () => {
     const evA = [...lib, plan(a, 'cake')];
     const evB = [...lib, plan(b, 'pesto', 4)];
     const all = [...lib, evA.at(-1), evB.at(-1), lock(a, evA), lock(b, evB)];
-    expect(ids(generate({ events: all, shopId: S }).lines)).toEqual(['basil', 'eggs', 'flour', 'milk']);
+    const { lines } = generate({ events: all, shopId: S });
+    expect(ids(lines)).toEqual(['basil', 'eggs', 'flour', 'milk']);
+    // Both lists were *locked* lists. Found by `npm run mutate`: keeping only
+    // one lock still produced these ids, because the dropped list's recipe was
+    // re-derived as an in-flight addition — so the ids alone cannot tell a
+    // union from a replacement. What can: those lines must not read as added
+    // during the shop...
+    expect(lines.filter((l) => l.addedAfterLock).map((l) => l.ingredientId)).toEqual([]);
+
+    // ...and, the case that matters, a recipe edited after the lock must not
+    // take a line off either locked list. Re-derivation would use the edited
+    // recipe, and the ticked eggs would vanish (§6).
+    const cook = createDevice('cook').observe(all);
+    const edited = [...all, cook.emit('recipe.upsert', { recipeId: 'cake',
+      recipe: { ...RECIPES.cake, lines: RECIPES.cake.lines.filter((l) => l.ingredientId !== 'eggs') } }, 'open')];
+    expect(ids(generate({ events: edited, shopId: S }).lines)).toContain('eggs');
   });
 
   it('once a shop is open, no line ever leaves the list — whatever anyone does', () => {

@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The Fridge List — household meal planning and shopping list",
+  "description": "The Fridge List \u2014 household meal planning and shopping list",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mutate": "node tools/mutate.js"
   },
   "devDependencies": {
     "fast-check": "^3.23.2",

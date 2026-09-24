@@ -16,6 +16,14 @@ found one hole — nothing required a merged change to reach the screen — now
 closed by FR-SYNC-7 and §11.1. Also records the atomic-upload assumption that
 §7.4 had been relying on silently.
 
+**Changes in v0.5:** results of a whole-codebase consistency review, recorded
+in §1.3. The lock snapshot moves from a `header.json` file into the lock event
+itself (§6) — the file would have been written by whichever device locked, the
+same shared-write defect as the `closed.json` removed in v0.3. Adds `keys.js`
+(§11), the single list derivation (§10), unreadable-file reporting (§8.3), the
+reload upload rule (§7.4), the incremental store (§11.1), and standing mutation
+testing (§14.3).
+
 **Changes in v0.3:** results of an adversarial review of the draft phase and the
 shop-closing flow. States the two design principles in §1.2. Removes the shared
 `closed.json` and the trip-history file, both of which broke §4's
@@ -102,6 +110,31 @@ A worked example of P-II: an unfinished shop blocking next week's planning
 (§8.6) is accepted, because it is loud and a button fixes it. Two shops
 existing at once was not accepted, because ticks would split silently between
 them — even though it was just as unlikely.
+
+### 1.3 The consistency review (v0.5)
+
+A review of the built code against its own stated rules found that most defects
+were one shape: **a rule stated once, applied in some places and not others.**
+Each was fixed by making the rule enforced by structure or by a test, rather
+than by anyone remembering it — P-I applied to the codebase itself.
+
+| Rule | Where it had lapsed | Now enforced by |
+|---|---|---|
+| Never present stale data as current (FR-SYNC-2) | a peer's unreadable file was swallowed; the device said "synced just now" | §8.3; tests; mutation `unreadable-swallowed` |
+| Derivation lives in core (§11) | the list was assembled in three places: suppression in one view, additions nowhere, no lock snapshot at all | §10 — `generate()` is the only derivation |
+| Every merge decision in one place (§5.4) | key formats hand-built and hand-parsed in six files | `keys.js`; a test that fails on any hand-built key |
+| Tests must be able to fail | the single-shop property was true by construction; the addition property checked a register, not the list | §14.3 — `npm run mutate` |
+| One error posture per module | `generate()` reported some data problems and threw on others | §10; mutation `conversion-throws` |
+| Durability holds when the app is killed (§7.4) | the upload queue lived only in memory | §7.4; mutation `upload-queue-in-memory` |
+| Every file is written by one device (§4) | the documented `header.json` lock snapshot | §6 — the snapshot is the lock event |
+| The offline shell caches every module | drifted twice, the second time inside the review itself | a test checks `sw.js` against the tree |
+
+Three defects the review found were **user-visible tick loss** of the kind this
+system exists to prevent, and none had been caught: a direct addition during a
+shop never appeared on anyone's list (FR-SHOP-1 did not work); a recipe edited
+mid-shop could remove a ticked line from the shopper's phone; and a tick made in
+a dead spot was never uploaded if the app was killed before signal returned.
+All three are now tested on the list a person reads, not on a stored register.
 
 ---
 
@@ -458,8 +491,7 @@ it recoverable.
     log/<deviceId>.jsonl              append-only events since that device's last compaction
   shops/
     <shopId>/
-      header.json                     written once at the lock; immutable
-      log/<deviceId>.jsonl            append-only shop events
+      log/<deviceId>.jsonl            append-only shop events, incl. the lock (§6)
       snapshot/<deviceId>-<n>.json    compacted shop events, incl. the close (§8.6)
       presence/<deviceId>.json        heartbeat; small; overwritten by its owner only
   archive/
@@ -479,18 +511,28 @@ act, and therefore a file two devices could overwrite. Closing is an event
 tree is now either written by exactly one device, or written exactly once and
 never again.
 
-`header.json` is written once when the shop locks, and records **the resolved
-line set and the inputs that produced it** — menu selection ids, the staple set,
-Wait List ids, and the recipe revisions used. Because FR-SHOP-3 freezes those
-inputs, the open shop holds no live references to the library: a recipe edited
-mid-shop by whoever is cooking cannot alter a list someone is standing in a shop
-holding. It also means FR-HIST-1's trip record falls out for free at close — the
-selections are already captured.
+**The lock event carries the shop's list.** "Menu is settled" emits a
+`shop.locked` event whose payload is the resolved line set exactly as the
+locking device sees it — each line with its quantity, sources and display
+fields — plus the planned selections. During the shop, the list is that
+snapshot plus everything added since (§10). The open shop therefore holds no
+live references to the library: a recipe edited mid-shop by whoever is cooking
+cannot alter, or remove a ticked line from, a list someone is standing in a shop
+holding. Display fields travel with each line, so a rename does not change what
+the shopper reads either.
 
-Every path containing `<deviceId>` is written by that device and no other. The
-only file not so scoped is `header.json`, written exactly once at the lock and
-never modified. Two devices locking concurrently write identical content, since
-both derive it from the same merged menu.
+An earlier draft kept this snapshot in a `header.json` file "written once at the
+lock", claiming two devices locking concurrently "write identical content, since
+both derive it from the same merged menu". That claim was false — two devices
+with different views of the menu derive different lists — so the file would have
+been written by whichever device locked, and one household member's list could
+overwrite the other's. That is the shared-write defect this section exists to
+rule out, the same as the `closed.json` removed in v0.3. As an event it is
+per-device like everything else, and concurrent locks are **unioned**: every
+line on either list stands, with the larger quantity where both hold it.
+
+Every path containing `<deviceId>` is written by that device and no other.
+There is now no exception.
 
 ---
 
@@ -536,6 +578,13 @@ place, so a failed upload leaves the previous version intact and the retry
 re-sends. **Any future storage backend must provide the same guarantee**
 (§15.2); it is not optional, and it had been assumed rather than stated until
 the failure autopsy asked why F1 could not recur.
+
+**Every event this device holds of its own is unconfirmed until its file is
+written.** The queue used to live only in memory, so a tick made in a dead spot,
+then the app killed in a pocket — which is what phones do to backgrounded apps —
+was never uploaded after reopening, and the device reported healthy. On start,
+every own event is therefore treated as unsent. Rewriting one's own file is
+idempotent (§4), so this costs one write per file and loses nothing.
 
 Unsent events sit in an IndexedDB queue. On failure, retry with exponential
 backoff (2 s, 4 s, 8 s, 16 s, then every 30 s) until success. Uploads are
@@ -658,7 +707,18 @@ Two independent conditions, both surfaced, per the stakeholder's Round 3 answer:
 - **Is everyone else current?** Per participating shopper, time since their last
   heartbeat: "Sam · 20s", "Alex · 6m ⚠".
 
-Either condition exceeding 60 seconds raises a visible warning. The app must
+- **Could I read everyone?** A peer's log that fails to parse — truncated by a
+  partial write, or corrupted any other way — is reported by name: *"Alex's
+  list couldn't be read — their ticks may be missing here."* Every intact line
+  of a damaged file is still applied, so the ticks that can be read are kept.
+  The report persists until the file reads cleanly; delta only mentions a file
+  when it changes, so a one-poll warning would vanish while the damage stayed.
+  Until review v0.5 this case was swallowed, and the device said it was
+  current — the household's original failure, reached by a route the autopsy
+  never examined.
+
+Either time-based condition exceeding 60 seconds raises a visible warning; an
+unreadable file raises one immediately. The app must
 never render a list that looks current when it is not — if sync state is
 unknown, it says unknown. A brief lag is fine and is stated (FR-SYNC-3); a
 confident-looking lie is the defect.
@@ -908,6 +968,7 @@ export pipeline. Confirmed wanted in Round 4.
   src/
     core/               NO I/O, NO DOM — pure, and the most heavily tested code
       events.js         event construction, version vectors, causality
+      keys.js           register keys: the only place they are built or parsed
       merge.js          the resolution rules (§5.4, §5.5)
       store.js          derived state + subscriptions (§11.1, FR-SYNC-7)
       shop.js           the shop chain and phase permissions (§8.1)
@@ -955,12 +1016,37 @@ view reads state once at mount and keeps it. There is no pull-to-refresh
 anywhere in this app, and no screen that is only correct just after you opened
 it.
 
+The store is incremental: a new event re-resolves only the registers it
+touches, instead of re-merging the whole history. For this household that took
+a tick from 21 ms to 1 ms and a list render from 42 ms to 2 ms, on the one
+interaction that happens in the aisle. A property asserts the incremental state
+equals a full merge, for any delivery order and any batching. Derivations are
+cached per `store.version` and recomputed whenever it moves — memoised, never
+stored, so §5.5 still holds.
+
+A register's observable change is its value **and the events that decided it**.
+Comparing values alone missed a second concurrent lock, which leaves the lock
+`true` but unions a new list into the shop — and left the screen stale.
+
 This is not testable by the property suite in §14, which exercises the engine
 and never the screen. It is checked by a scenario test (Stage 3): merge an
 event from a simulated second device and assert the rendered list changed.
 
 `src/core/` is pure: no network, no DOM, no storage, no clock except what is
-passed in. That is what makes the invariants testable by generating millions of
+passed in.
+
+Four placement rules, each now enforced by a test rather than by memory:
+
+- **Every resolution decision lives in `merge.js`** (`resolveGroup`), which both
+  the full merge and the incremental store call, so they cannot disagree.
+- **Every register key is built and parsed in `keys.js`.** A test fails, naming
+  the line, if a key is built or parsed by hand anywhere else.
+- **The list is derived in `generate.js` and nowhere else.** Views render what
+  it returns; the app, the close report and the print sheet all read the same
+  list.
+- **Derivations accept events or merged state** through one helper, `stateOf()`,
+  so tests pass events and the app passes the store's state without merging
+  twice. That is what makes the invariants testable by generating millions of
 scenarios in memory (§14). **The merge rules must not leak outside
 `core/merge.js`.** A resolution decision made anywhere else is a bug, because it
 is a decision no property test is watching.
@@ -1065,6 +1151,8 @@ hold in every one.
 | **P5** | **Compaction safety.** `merge(compact(E)) == merge(E)` for every event set E. Compaction can never change an outcome. | §5.8 property 2 |
 | **P6** | **Phase integrity.** No removal event of any kind — line, menu selection, or Wait List item — is ever valid against a shop in the `open` phase. Generated scenarios attempt them; the engine must reject every one. | FR-SHOP-3, §5.9 |
 | **P7** | **Single shop.** No sequence of events, under any interleaving, produces two shops simultaneously not `closed`, or forks the shop chain into two successor ids. | SRS §2, §8.1 |
+| **P9** | **No line leaves an open shop's list** — under ticks, additions, Wait List additions, recipe edits, or a staple being unflagged. The user-visible form of FR-SYNC-1. | §6, §10, `test/list.test.js` |
+| **P10** | **The incremental store equals a full merge** — values and deciding events — for any delivery order and batching. | §11.1, `test/store.test.js` |
 | **P8** | **Wait List closure.** A Wait List item whose line was **done** at close is absent from the Wait List afterwards; one whose line was not done is still present. | FR-LIST-7, FR-WAIT-2 |
 
 P1 and P4 are the two that matter most, because they are the two failures the
@@ -1126,6 +1214,30 @@ generation (§10), and the carry-over state machine (§9.1) — ordinary unit te
 since those are pure functions with known answers.
 
 ---
+
+### 14.3 The tests must be able to fail
+
+`npm run mutate` reintroduces, one at a time, nineteen specific defects this
+document has a rule against — timestamp ordering, a chain that never advances,
+an open shop that permits removal, a list that re-derives mid-shop, an upload
+queue held only in memory, a device writing another's file, and more — and
+requires at least one test to fail for each. A mutation that survives is a rule
+this document states and the tests do not check. A mutation whose target code
+has moved is reported as stale and fails the run, so the list cannot quietly
+fall behind the code.
+
+It exists because the suite twice shipped a test that could not fail, and each
+passed for weeks. It earned its place on first run: the concurrent-lock test
+passed against a store that kept only one of two locks, because a *different*
+mechanism — in-flight re-derivation — produced the same ingredient ids. Pinning
+the difference exposed that the replacement would let a mid-shop recipe edit
+remove a line from a locked list.
+
+The pattern behind all three weak tests is the same, and worth naming: **a test
+that asserts an outcome more than one mechanism can produce does not test the
+mechanism.** Assert the thing a person would notice — the line on the list, the
+marker beside it, the survival of a tick — and prove the test fails without the
+code it guards.
 
 ## 15. Data ownership and longevity
 
@@ -1239,7 +1351,7 @@ Deliberately minimal, and appropriate to the deployment:
 | FR-LIST-5 done state | §5.4 |
 | FR-LIST-6 grouping | §10.1 |
 | FR-LIST-7 Wait List fulfilled by purchase | §8.6, §14 P8 |
-| FR-SHOP-1 add mid-shop | §8.5, §5.7 |
+| FR-SHOP-1 add mid-shop | §8.5, §5.7, §10 (`generate.js`), P9 |
 | FR-SHOP-3 menu lock | §5.7, §5.9, §8.1, §8.5, §14 P6 |
 | FR-SHOP-4 explicit completion | §8.6 |
 | FR-SHOP-2 no side-effect reset | §5.7, §14 P4 |

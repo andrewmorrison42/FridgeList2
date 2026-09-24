@@ -67,8 +67,7 @@ describe('P1 — tick durability (FR-SYNC-1)', () => {
 describe('P2 — convergence (FR-SYNC-3)', () => {
   it('merging is idempotent', () => {
     fc.assert(fc.property(scenarioArb, (s) => {
-      const { all } = run(s);
-      expect(snapshot([...all, ...all])).toBe(snapshot(all));
+      stable(s, ({ all }) => expect(snapshot([...all, ...all])).toBe(snapshot(all)));
     }), { numRuns: 500 });
   });
 
@@ -95,16 +94,16 @@ describe('P3 — addition durability (FR-SYNC-1, FR-WAIT-2)', () => {
 describe('P5 — compaction safety (§7.5)', () => {
   it('compacting never changes the answer', () => {
     fc.assert(fc.property(scenarioArb, (s) => {
-      const { all } = run(s);
-      expect(snapshot(compact(all))).toBe(snapshot(all));
+      stable(s, ({ all }) => expect(snapshot(compact(all))).toBe(snapshot(all)));
     }), { numRuns: 1000 });
   });
 
   it('a compacted log still merges correctly with later events', () => {
     fc.assert(fc.property(scenarioArb, fc.nat(), (s, seed) => {
-      const { all } = run(s);
-      const half = shuffle(all, seed + 7).slice(0, Math.ceil(all.length / 2));
-      expect(snapshot([...compact(half), ...all])).toBe(snapshot(all));
+      stable(s, ({ all }) => {
+        const half = shuffle(all, seed + 7).slice(0, Math.ceil(all.length / 2));
+        expect(snapshot([...compact(half), ...all])).toBe(snapshot(all));
+      });
     }), { numRuns: 500 });
   });
 });

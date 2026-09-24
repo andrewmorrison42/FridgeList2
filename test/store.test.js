@@ -106,3 +106,56 @@ describe('FR-SYNC-7 — display currency', () => {
     expect(store.version).toBe(2);                         // informed untick, does change
   });
 });
+
+describe('incremental store (review #6)', () => {
+  const opArb = fc.oneof(
+    fc.record({ kind: fc.constant('tick'),   dev: fc.nat(3), line: fc.constantFrom(...LINES) }),
+    fc.record({ kind: fc.constant('untick'), dev: fc.nat(3), line: fc.constantFrom(...LINES) }),
+    fc.record({ kind: fc.constant('add'),    dev: fc.nat(3), line: fc.constantFrom(...LINES) }),
+    fc.record({ kind: fc.constant('sync'),   dev: fc.nat(3), other: fc.nat(3) }),
+  );
+  // Registers compared by value AND by which events decided them: derivations
+  // such as the lock snapshot read the deciding events, not just the value.
+  const full = (state) => JSON.stringify([...state].map(([k, r]) => [k, r.value, r.by.map((e) => e.id).sort()]).sort());
+
+  it('equals a full merge, for any delivery order and any batching', async () => {
+    const { merge } = await import('../src/core/merge.js');
+    fc.assert(fc.property(
+      fc.record({ nDevices: fc.integer({ min: 2, max: 4 }), ops: fc.array(opArb, { maxLength: 40 }) }),
+      fc.nat(), fc.integer({ min: 1, max: 7 }),
+      (scenario, seed, chunk) => {
+        const { all } = run(scenario);
+        const store = createStore();
+        const order = shuffle(all, seed + 1);
+        for (let i = 0; i < order.length; i += chunk) store.apply(order.slice(i, i + chunk));
+        expect(full(store.state)).toBe(full(merge(all)));
+      },
+    ), { numRuns: 800 });
+  });
+
+  it('notifies when a register gains a deciding event, even if its value is unchanged', () => {
+    // A second, concurrent "Menu is settled" leaves the lock register true —
+    // but its list is unioned into the shop's, so the list changes. A store
+    // that compared values alone would leave every cached list stale.
+    const a = createDevice('a');
+    const b = createDevice('b');
+    const store = createStore([a.emit('shop.locked', { shopId: 's1', locked: true, lines: [] }, 'draft')]);
+    const before = store.version;
+    store.apply(b.emit('shop.locked', { shopId: 's1', locked: true, lines: [{ ingredientId: 'x' }] }, 'draft'));
+    expect(store.version).toBe(before + 1);
+  });
+
+  it('hands every new event to onEvents, including ones that change nothing', () => {
+    // Persistence hangs off this. An event that changes nothing today is still
+    // part of the history, and history that is not saved is history lost.
+    const store = createStore();
+    const seen = [];
+    store.onEvents((added) => seen.push(...added.map((e) => e.id)));
+    const t = tick(createDevice('a'), 'flour');
+    store.apply(t);
+    const blind = tick(createDevice('b'), 'flour', false);     // loses; changes nothing
+    store.apply(blind);
+    store.apply(blind);                                         // duplicate: not new
+    expect(seen).toEqual([t.id, blind.id]);
+  });
+});

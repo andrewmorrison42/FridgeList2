@@ -226,3 +226,22 @@ describe("a peer's file that cannot be read (review #1, FR-SYNC-2)", () => {
     expect(a.done('flour')).toBe(true);
   });
 });
+
+describe('after a reload (review #6)', () => {
+  it("uploads this device's own events that never made it up, and says so until they do", async () => {
+    // The upload queue lived only in memory. A tick made in a dead spot, then
+    // the app killed in a pocket, then reopened with signal: the tick stayed on
+    // this phone, and the phone said it was healthy.
+    const d = createDevice('me');
+    const t = d.emit('line.done', { shopId: 's1', ingredientId: 'flour', done: true }, 'open');
+    const storage = createMemoryStorage();
+    const store = createStore([t]);                            // restored from IndexedDB
+    const sync = createSync({ storage, store, deviceId: 'me', now: () => 1 });
+
+    expect(sync.status().unsent).toBe(1);                      // honest before upload
+    expect(sync.status().healthy).toBe(false);
+    await sync.tick();
+    expect((await storage.list('shops/s1/log/')).map((f) => f.path)).toEqual(['shops/s1/log/me.jsonl']);
+    expect(sync.status().unsent).toBe(0);
+  });
+});

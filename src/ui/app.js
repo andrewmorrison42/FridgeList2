@@ -59,30 +59,55 @@ export async function createApp({ storage } = {}) {
   const sync = createSync({ storage, store, deviceId: identity.id });
   const presence = createPresence({ storage, deviceId: identity.id, nickname: identity.nickname });
 
-  // Everything that reaches local state is persisted, so a closed tab loses
-  // nothing and the next open is instant (§7.1).
-  store.subscribe(() => persisted.put(store.events).catch(() => {}));
+  // Every new event is persisted — including ones that change nothing — so a
+  // closed tab loses nothing and the next open is instant (§7.1). Only the new
+  // events: rewriting all ~1,100 on every tick was most of a tick's cost.
+  store.onEvents((added) => persisted.put(added).catch(() => {}));
+  // The device clock follows every event as it arrives, so each emission's
+  // deps are complete without re-scanning the whole history per action.
+  store.onEvents((added) => device.observe(added));
+
+  /**
+   * Cache a derivation until the store next changes. Memoised, never stored:
+   * the value is recomputed from state whenever `version` moves, so "derived,
+   * not stored" (§5.5) still holds — a render just stops re-deriving the same
+   * answer six times over.
+   */
+  const memo = (fn) => {
+    let at = -1;
+    let value;
+    return () => {
+      if (at !== store.version) { value = fn(); at = store.version; }
+      return value;
+    };
+  };
+  const derived = {
+    shop: memo(() => currentShop(store.state)),
+    can: memo(() => permissions(store.state)),
+    library: memo(() => library(store.state)),
+    selections: memo(() => selections(store.state)),
+    history: memo(() => cookHistory(store.events)),
+    list: memo(() => generate({ state: store.state, shopId: currentShop(store.state).id })),
+    waitList: memo(() => openWaitList(store.state)),
+  };
 
   let roster = [];
   let timer = null;
 
   /** Record events: local state and screen first, upload after (§7.1). */
-  const record = (events) => {
-    device.observe(store.events);
-    return sync.record(events);
-  };
+  const record = (events) => sync.record(events);
 
   const app = {
     identity, store, sync, presence, storage, config, auth,
 
-    get shop() { return currentShop(store.events); },
-    get can() { return permissions(store.events); },
-    get library() { return library(store.events); },
-    get selections() { return selections(store.events); },
-    get history() { return cookHistory(store.events); },
+    get shop() { return derived.shop(); },
+    get can() { return derived.can(); },
+    get library() { return derived.library(); },
+    get selections() { return derived.selections(); },
+    get history() { return derived.history(); },
     get roster() { return roster; },
     get staleness() { return staleness(sync.status(), roster); },
-    why: (action) => explainRefusal(store.events, action),
+    why: (action) => explainRefusal(store.state, action),
 
     /**
      * The list for the current shop. Derived in core (generate.js) and nowhere
@@ -90,44 +115,42 @@ export async function createApp({ storage } = {}) {
      * applied there, so every reader — this screen, the close report, the
      * print sheet — sees the same list. Review #2.
      */
-    list() {
-      return generate({ state: store.state, shopId: currentShop(store.state).id });
-    },
+    list() { return derived.list(); },
 
-    waitList() { return openWaitList(store.state); },
+    waitList() { return derived.waitList(); },
 
     // -- actions ------------------------------------------------------------
 
     planRecipe(recipeId, servings) {
-      const { id, phase } = currentShop(store.events);
+      const { id, phase } = currentShop(store.state);
       return record(device.emit('menu.selection',
         { recipeId, present: true, servings, plannedFor: id }, phase));
     },
 
     unplanRecipe(recipeId) {
-      const { phase } = currentShop(store.events);
+      const { phase } = currentShop(store.state);
       return record(device.emit('menu.selection', { recipeId, present: false }, phase));
     },
 
     markCooked(recipeId, cooked = true) {
-      const { phase } = currentShop(store.events);
+      const { phase } = currentShop(store.state);
       return record(device.emit('menu.cooked', { recipeId, cooked }, phase));
     },
 
     addWaitList(ingredientId, note = null) {
-      const { phase } = currentShop(store.events);
+      const { phase } = currentShop(store.state);
       const id = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
       return record(device.emit('waitlist.item', { itemId: id, ingredientId, note, present: true }, phase));
     },
 
     removeWaitList(itemId) {
-      const { phase } = currentShop(store.events);
+      const { phase } = currentShop(store.state);
       return record(device.emit('waitlist.item', { itemId, present: false }, phase));
     },
 
     /** The pantry check — draft only (FR-LIST-3). A Wait List line is fulfilled. */
     suppressLine(ingredientId) {
-      const { id, phase } = currentShop(store.events);
+      const { id, phase } = currentShop(store.state);
       const events = [device.emit('line.suppressed', { shopId: id, ingredientId, suppressed: true }, phase)];
       for (const item of this.waitList()) {
         if (item.ingredientId !== ingredientId) continue;
@@ -139,24 +162,24 @@ export async function createApp({ storage } = {}) {
     },
 
     addLine(ingredientId) {
-      const { id, phase } = currentShop(store.events);
+      const { id, phase } = currentShop(store.state);
       return record(device.emit('line.added', { shopId: id, ingredientId, present: true }, phase));
     },
 
     setDone(ingredientId, done) {
-      const { id } = currentShop(store.events);
+      const { id } = currentShop(store.state);
       return record(device.emit('line.done', { shopId: id, ingredientId, done }, 'open'));
     },
 
     dismissCarryOver(ingredientId) {
-      const { id, phase } = currentShop(store.events);
+      const { id, phase } = currentShop(store.state);
       return record(device.emit('carryover.dismissed', { shopId: id, ingredientId, dismissed: true }, phase));
     },
 
     /** Generate: carry-over transitions, then the proposal. Draft only (§5.7). */
     generateList() {
-      const { id } = currentShop(store.events);
-      const transitions = carryOverTransitions(store.events, id, device);
+      const { id } = currentShop(store.state);
+      const transitions = carryOverTransitions(store.state, id, device);
       if (transitions.length) record(transitions);
       return this.list();
     },
@@ -173,8 +196,8 @@ export async function createApp({ storage } = {}) {
 
     /** "Shopping is completed" (FR-SHOP-4). Writes the trip record with it. */
     async closeShop() {
-      const { id } = currentShop(store.events);
-      const chosen = [...selections(store.events).values()].map((s) => s.recipeId);
+      const { id } = currentShop(store.state);
+      const chosen = [...selections(store.state).values()].map((s) => s.recipeId);
       const ev = device.emit('shop.closed', {
         shopId: id, closed: true, nextShopId: nextShopId(id),
         selections: chosen, closedAt: new Date().toISOString(),
@@ -198,21 +221,21 @@ export async function createApp({ storage } = {}) {
 
     /** What still is not done, at the point the household believes it is. FR-SYNC-4.3. */
     outstanding() {
-      const { id } = currentShop(store.events);
+      const { id } = currentShop(store.state);
       return this.list().lines.filter((l) => !store.get(K.lineDone(id, l.ingredientId)));
     },
 
     // -- lifecycle ----------------------------------------------------------
 
     async joinShop({ silent = false } = {}) {
-      const { id } = currentShop(store.events);
+      const { id } = currentShop(store.state);
       await presence.join(id, { silent });
       roster = await presence.roster(id);
     },
 
     async refresh() {
       await sync.tick();
-      const { id, phase } = currentShop(store.events);
+      const { id, phase } = currentShop(store.state);
       if (phase === 'open') {
         if (presence.joined) await presence.beat(id, { syncStatus: sync.status() });
         roster = await presence.roster(id);

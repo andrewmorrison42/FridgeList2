@@ -33,7 +33,13 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
   // rewritten would otherwise be forgotten after one pull — and that peer's
   // ticks would be missing while this device said it was current.
   const unreadable = new Map();
-  let unsent = [];                  // events emitted here, not yet confirmed up
+  // Events emitted here and not yet confirmed written. Seeded with every event
+  // this device holds of its own: the queue used to live only in memory, so a
+  // tick made in a dead spot, then the app killed in a pocket, was never
+  // uploaded after reopening — and the device reported healthy. Rewriting our
+  // own files is idempotent (§4), so treating everything as unconfirmed until
+  // the first successful write costs one write per file and loses nothing.
+  let unsent = store.events.filter((e) => e.dev === deviceId);
   let failures = 0;
   let lastPullAt = null;
   let lastPushAt = null;
@@ -58,8 +64,9 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
    */
   async function push() {
     const paths = new Set(unsent.map((e) => pathFor(e, deviceId)));
-    if (paths.size === 0) return { pushed: 0 };
+    if (paths.size === 0) return { pushed: 0, written: [] };
     let pushed = 0;
+    const written = [];
     for (const path of paths) {
       const events = ownEventsFor(path);
       try {
@@ -68,6 +75,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
         // write leaves them queued, and the file's previous version intact.
         unsent = unsent.filter((e) => pathFor(e, deviceId) !== path);
         pushed += events.length;
+        written.push(path);
         failures = 0;
         lastError = null;
       } catch (err) {
@@ -76,7 +84,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
       }
     }
     lastPushAt = now();
-    return { pushed };
+    return { pushed, written };
   }
 
   /** Fetch what changed elsewhere and merge it. */
@@ -160,7 +168,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
    * indistinguishably from current data.
    */
   function status() {
-    const { phase } = currentShop(store.events);
+    const { phase } = currentShop(store.state);
     return {
       deviceId,
       phase,
@@ -184,11 +192,12 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
 
   /** One cycle. The app drives this on an interval; tests drive it directly. */
   async function tick() {
-    const out = { ...(await pull()), ...(await push()) };
-    for (const path of new Set(store.events.filter((e) => e.dev === deviceId).map((e) => pathFor(e, deviceId)))) {
-      await maybeCompact(path);
-    }
-    return out;
+    const pulled = await pull();
+    const pushed = await push();
+    // A log only grows when this device writes it, so compaction only needs
+    // checking for files just written — not every file, every three seconds.
+    for (const path of pushed.written) await maybeCompact(path);
+    return { ...pulled, ...pushed };
   }
 
   /**
@@ -196,7 +205,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
    * seconds; a recipe edit at the kitchen table is not urgent. §7.3.
    */
   function intervalMs() {
-    return currentShop(store.events).phase === 'open' ? 3000 : 60000;
+    return currentShop(store.state).phase === 'open' ? 3000 : 60000;
   }
 
   return { record, push, pull, tick, status, intervalMs, maybeCompact, pathFor };

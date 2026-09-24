@@ -116,11 +116,17 @@ export function groupByKey(events) {
  */
 export function merge(events) {
   const state = new Map();
-  for (const [key, group] of groupByKey(events)) {
-    const trueWins = TRUE_WINS.has(group[0].type);
-    state.set(key, resolve(group, { trueWins }));
-  }
+  for (const [key, group] of groupByKey(events)) state.set(key, resolveGroup(group));
   return state;
+}
+
+/**
+ * Resolve one register's events, choosing true-wins or last-save-wins by type.
+ * The one place that choice is made: the full merge above and the incremental
+ * store both call this, so they cannot disagree about how anything resolves.
+ */
+export function resolveGroup(group) {
+  return resolve(group, { trueWins: TRUE_WINS.has(group[0].type) });
 }
 
 /**

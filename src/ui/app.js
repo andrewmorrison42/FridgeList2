@@ -193,10 +193,18 @@ export async function createApp({ storage } = {}) {
       return record(device.emit('menu.cooked', { recipeId, plannedFor, cooked, cookedIn: id }, phase));
     },
 
-    addWaitList(ingredientId, note = null) {
+    /**
+     * Put something on the Wait List (FR-WAIT-1): an ingredient, or — for
+     * things that are not ingredients, like birthday candles — just a name.
+     * Either may carry a note.
+     */
+    addWaitList(ingredientId, { name = null, note = null } = {}) {
       const { phase } = currentShop(store.state);
       const id = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-      return record(device.emit('waitlist.item', { itemId: id, ingredientId, note, present: true }, phase));
+      const clean = (t) => (t && String(t).trim()) || null;
+      return record(device.emit('waitlist.item', {
+        itemId: id, ingredientId: ingredientId ?? null, name: clean(name), note: clean(note), present: true,
+      }, phase));
     },
 
     removeWaitList(itemId) {
@@ -255,18 +263,10 @@ export async function createApp({ storage } = {}) {
         shopId: id, closed: true, nextShopId: nextShopId(id),
         selections: chosen, closedAt: new Date().toISOString(),
       }, 'open');
-      // Every done line from a Wait List item fulfils it (FR-LIST-7).
-      const { lines } = this.list();
-      const fulfil = [];
-      for (const line of lines) {
-        if (!store.get(K.lineDone(id, line.ingredientId))) continue;
-        for (const src of line.sources) {
-          if (src.kind === 'waitlist') {
-            fulfil.push(device.emit('waitlist.item', { itemId: src.itemId, present: false }, 'open'));
-          }
-        }
-      }
-      record([ev, ...fulfil]);
+      // A Wait List item bought in this shop is fulfilled by derivation, from
+      // its ticked line and this close (openWaitList, FR-LIST-7) — nothing to
+      // emit here, which is what made completing such a shop throw.
+      record(ev);
       await presence.leave(id).catch(() => {});
       await sync.tick().catch(() => {});
       return ev;

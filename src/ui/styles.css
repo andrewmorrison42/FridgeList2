@@ -168,6 +168,12 @@ nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 
 
 /* --- settings ----------------------------------------------------------- */
 
+.note-input {
+  width: 100%; min-height: var(--tap); padding: 0 12px; margin: 0 0 8px;
+  font: inherit; background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.waitlist .since { display: block; }
 .field { display: block; margin: 10px 0; }
 .field > span { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 4px; }
 .field input[type="text"] {

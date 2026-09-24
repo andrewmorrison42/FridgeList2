@@ -21,7 +21,7 @@ const ingredients = new Map(library.ingredients.map((i) => [i.id, i]));
 const byName = new Map(library.ingredients.map((i) => [i.name, i]));
 
 describe('migration against its source (glitch #1)', () => {
-  it('every recipe line yields the shopping quantity the source says', () => {
+  it('P12 — every recipe line yields the shopping quantity the source says', () => {
     const parse = (q) => (typeof q === 'number' ? q : Number(q));
     const wrong = [];
     let checked = 0;

@@ -191,6 +191,21 @@ describe('as a person uses it', () => {
     await p.close();
   });
 
+  it('Wait List: something that is not an ingredient, and a note, typed as a person types (FR-WAIT-1)', async () => {
+    const p = await phone(browser, server.url);
+    await p.tab('Wait');
+    await p.type(p.page.locator('input[type=search]'), 'birthday candles');
+    await p.tap(p.page.locator('.picker li', { hasText: 'not in the ingredient list' }).locator('button'));
+    expect(await p.page.locator('.waitlist li').allTextContents()).toEqual(['birthday candlesRemove']);
+
+    await p.type(p.page.locator('input[type=search]'), 'Mayonnaise');
+    await p.type(p.page.locator('input.note-input'), 'the big jar');
+    await p.tap(p.page.locator('.picker li', { hasText: /^Mayonnaise/ }).locator('button'));
+    const mayo = p.page.locator('.waitlist li', { hasText: 'Mayonnaise' });
+    expect(await mayo.textContent()).toContain('the big jar');
+    await p.close();
+  });
+
   it('#9 — paste the client id, tap Connect once, and you are sent to sign in', async () => {
     const p = await phone(browser, server.url, { hash: '#settings' });
     let signIn = false;

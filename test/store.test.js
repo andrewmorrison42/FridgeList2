@@ -118,7 +118,7 @@ describe('incremental store (review #6)', () => {
   // such as the lock snapshot read the deciding events, not just the value.
   const full = (state) => JSON.stringify([...state].map(([k, r]) => [k, r.value, r.by.map((e) => e.id).sort()]).sort());
 
-  it('equals a full merge, for any delivery order and any batching', async () => {
+  it('P10 — the incremental store equals a full merge, for any delivery order and any batching', async () => {
     const { merge } = await import('../src/core/merge.js');
     fc.assert(fc.property(
       fc.record({ nDevices: fc.integer({ min: 2, max: 4 }), ops: fc.array(opArb, { maxLength: 40 }) }),

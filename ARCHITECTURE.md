@@ -810,11 +810,19 @@ Late-arriving ticks cannot change either, so FR-HIST-1's "never edited after
 being written" is never threatened by them. A trip history that had stored line
 detail would have been invalidated by exactly this case.
 
-**Wait List fulfilment (FR-LIST-7).** At close, every **done** line that
-originated from a Wait List item fulfils that item, removing it from the Wait
-List. Without this, buying something never takes it off the list and it returns
-every week — a silent failure, and the kind P-II says to fix regardless of how
-mundane it looks.
+**Wait List fulfilment (FR-LIST-7) is derived, not recorded.** An item is
+fulfilled once a completed shop it was on the list for — added causally before
+that shop's close — has its line ticked. Without this, buying something never
+takes it off the list and it returns every week.
+
+Earlier drafts had closing *emit* a removal for each such item. The removal was
+emitted while the shop was still open, where removals are forbidden (§5.9), so
+closing threw — and **any shop in which a Wait List item had been ticked could
+not be completed at all**. The property that should have caught it, P8, was
+listed in §14 from v0.3 and never written. Derived, there is nothing to refuse,
+nothing to mistime, and nothing to lose; a tick arriving late, after the close,
+still fulfils the item it bought. Third time for the same move: carry-over (§9.1)
+and the list (§10) went the same way.
 
 **If nobody closes the shop.** Because the menu is locked (FR-SHOP-3), an
 unfinished shop blocks planning the next one. This failure is accepted under
@@ -858,7 +866,9 @@ MenuSelection {
   carriedInto: Set<shopId>         // NOT a counter — see §5.5, §9.1
 }
 
-WaitListItem { id, ingredientId, note, addedAt }
+WaitListItem { id, ingredientId | null, name | null, note, addedAt }
+                                 // an ingredient, or just a name for things that
+                                 // are not ingredients ("birthday candles")
 
 ShoppingLine {
   shopId, ingredientId,            // identity — see §5.6
@@ -1184,7 +1194,12 @@ hold in every one.
 | **P11** | **Over any run of weeks, the menu stays sane** — no recipe twice, nothing cooked in a past week lingering, uncooked meals carried then flagged. | §9.1, `test/weeks.test.js` |
 | **P12** | **The migration equals its source** — every imported line, at its recipe's own servings, yields exactly the quantity the household's data says. | §12, `test/migration.test.js` |
 | **P10** | **The incremental store equals a full merge** — values and deciding events — for any delivery order and batching. | §11.1, `test/store.test.js` |
-| **P8** | **Wait List closure.** A Wait List item whose line was **done** at close is absent from the Wait List afterwards; one whose line was not done is still present. | FR-LIST-7, FR-WAIT-2 |
+| **P8** | **Wait List closure.** A Wait List item whose line was **done** in a completed shop it was on the list for is absent afterwards; one not ticked, or added after that shop, is still present; completing a shop never throws. | FR-LIST-7, FR-WAIT-2, `test/weeks.test.js` |
+
+**Every property listed here is named by a test**, and `test/docs.test.js` fails
+otherwise. P4 and P8 were listed for several versions and never written, and a
+real defect lived in the gap (§8.6). A property a document claims and no test
+checks is the documentation version of a test that cannot fail.
 
 P1 and P4 are the two that matter most, because they are the two failures the
 household actually experienced. P6 is the cheapest of the eight and arguably the

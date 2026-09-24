@@ -102,7 +102,7 @@ describe('a household over several weeks', () => {
     expect(h.plan()).toEqual([]);                     // ...then leaves.
   });
 
-  it('over any run of weeks: no recipe twice on a plan, and nothing cooked in a past week lingers', async () => {
+  it('P11 — over any run of weeks: no recipe twice on a plan, and nothing cooked in a past week lingers', async () => {
     const weekArb = fc.record({
       plan: fc.subarray(['laksa', 'spaghetti', 'lamb']),
       cook: fc.subarray(['laksa', 'spaghetti', 'lamb']),
@@ -168,5 +168,94 @@ describe('glitches found on the screenshot sheet', () => {
     await h.app.loadLibrary({ ...LIBRARY, recipes: [...LIBRARY.recipes,
       { id: 'soup', name: 'Soup', servings: 4, lines: [{ ingredientId: 'noodles', quantity: 100 }] }] });
     expect(h.app.library.recipes.has('soup')).toBe(true);
+  });
+});
+
+describe('the Wait List (FR-WAIT-1 — the note was unbuilt until v0.6)', () => {
+  it('an item carries an optional note, and the shopping list shows it', async () => {
+    const h = await household();
+    h.app.addWaitList('prawns', { note: 'the big bag' });
+    expect(h.app.waitList()[0].note).toBe('the big bag');
+    const line = h.app.list().lines.find((l) => l.ingredientId === 'prawns');
+    expect(line.notes).toEqual(['the big bag']);
+  });
+
+  it('something that is not an ingredient can still go on the Wait List, and reaches the list', async () => {
+    // Searching for "birthday candles" used to end at "0 matches" and a dead end.
+    const h = await household();
+    h.app.addWaitList(null, { name: 'Birthday candles' });
+    expect(h.app.waitList().map((i) => i.name)).toEqual(['Birthday candles']);
+    const line = h.app.list().lines.find((l) => l.name === 'Birthday candles');
+    expect(line).toBeTruthy();
+    expect(line.category).toBe('Other');
+  });
+
+  it('...and, once bought, comes off the Wait List like anything else (FR-LIST-7)', async () => {
+    const h = await household();
+    h.app.addWaitList(null, { name: 'Birthday candles' });
+    h.app.lockShop();
+    const line = h.app.list().lines.find((l) => l.name === 'Birthday candles');
+    h.app.setDone(line.ingredientId, true);
+    await h.app.closeShop();
+    expect(h.app.waitList()).toEqual([]);
+  });
+});
+
+describe('P8 — Wait List closure (FR-LIST-7, FR-WAIT-2)', () => {
+  // Listed in ARCHITECTURE §14 from v0.3 and never written — so completing a
+  // shop in which any Wait List item had been ticked threw, and the shop could
+  // not be completed at all. Found while building the Wait List note.
+  it('P8 — a Wait List item ticked in a shop is gone once the shop is completed, and completing never throws', async () => {
+    const h = await household();
+    h.app.addWaitList('prawns');
+    h.app.lockShop();
+    h.app.setDone('prawns', true);
+    await expect(h.app.closeShop()).resolves.toBeTruthy();
+    expect(h.app.shop.id).toBe('shop-0002');
+    expect(h.app.waitList()).toEqual([]);
+  });
+
+  it('P8 — one not ticked is still there next week (FR-WAIT-2)', async () => {
+    const h = await household();
+    h.app.addWaitList('prawns');
+    await h.shop();
+    expect(h.app.waitList().map((i) => i.ingredientId)).toEqual(['prawns']);
+  });
+
+  it('P8 — a tick in an earlier shop does not fulfil an item added after it', async () => {
+    const h = await household();
+    h.app.planRecipe('laksa', 4);                     // laksa needs prawns
+    h.app.lockShop();
+    h.app.setDone('prawns', true);
+    await h.app.closeShop();
+    h.app.addWaitList('prawns');                      // running low again, the week after
+    expect(h.app.waitList().map((i) => i.ingredientId)).toEqual(['prawns']);
+  });
+});
+
+describe('P4 — deriving the list never writes anything (FR-SHOP-2)', () => {
+  it('P4 — generating, at any point in any run of weeks, leaves the store exactly as it was', async () => {
+    await fc.assert(fc.asyncProperty(fc.array(fc.record({
+      plan: fc.subarray(['laksa', 'spaghetti', 'lamb']), tick: fc.boolean(), close: fc.boolean(),
+    }), { maxLength: 5 }), async (weeks) => {
+      const w = await household();
+      const unchanged = () => {
+        const before = [w.app.store.version, w.app.store.events.length];
+        w.app.generateList(); w.app.list(); w.app.outstanding();
+        expect([w.app.store.version, w.app.store.events.length]).toEqual(before);
+      };
+      for (const week of weeks) {
+        // Only what the app permits at that point: a week that was not closed
+        // leaves its shop open, and the next cannot plan or lock.
+        if (w.app.can.canEditMenu) for (const r of week.plan) w.app.planRecipe(r, 4);
+        unchanged();
+        if (w.app.can.canLock) w.app.lockShop();
+        unchanged();
+        if (week.tick) { const l = w.app.list().lines[0]; if (l) w.app.setDone(l.ingredientId, true); }
+        unchanged();
+        if (week.close) await w.app.closeShop();
+        unchanged();
+      }
+    }), { numRuns: 40 });
   });
 });

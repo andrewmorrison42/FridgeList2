@@ -15,16 +15,39 @@ import { stateOf } from './merge.js';
 import { shopPhases } from './shop.js';
 import { library as libraryOf } from './library.js';
 import { K, parseKey } from './keys.js';
+import { happenedBefore } from './events.js';
 
-/** The open Wait List: present items, oldest first. FR-WAIT-1/2. */
+/**
+ * The open Wait List: present items, not yet bought, oldest first.
+ * FR-WAIT-1, FR-WAIT-2, FR-LIST-7.
+ *
+ * "Bought" is derived, not recorded: an item is fulfilled once a completed
+ * shop it was on the list for — added before that shop closed — has its line
+ * ticked. Recording it instead meant emitting a removal at the moment of
+ * closing, while the shop was still open and removals are forbidden; so any
+ * shop with a ticked Wait List item could not be completed at all. Derived,
+ * there is nothing to refuse, nothing to mistime and nothing to lose — and a
+ * tick that arrives late, after the close, still fulfils the item it bought.
+ */
 export function openWaitList(events) {
   const state = stateOf(events);
+  const closes = [];
+  for (const [key, reg] of state) {
+    const k = parseKey(key);
+    if (k?.kind === 'shopClosed' && reg.value === true) closes.push([k.shopId, reg.by]);
+  }
   const out = [];
   for (const [key, reg] of state) {
     const k = parseKey(key);
     if (k?.kind !== 'waitlistPresent' || reg.value !== true) continue;
     const p = reg.by[0]?.payload ?? {};
-    out.push({ id: k.itemId, ingredientId: p.ingredientId, note: p.note ?? null, qty: p.qty ?? null });
+    const item = { id: k.itemId, ingredientId: p.ingredientId ?? null, name: p.name ?? null,
+      note: p.note ?? null, qty: p.qty ?? null };
+    const lineId = item.ingredientId ?? `wl-${item.id}`;
+    const bought = closes.some(([shopId, closeEvents]) =>
+      state.get(K.lineDone(shopId, lineId))?.value === true
+      && reg.by.some((added) => closeEvents.some((closed) => happenedBefore(added, closed))));
+    if (!bought) out.push(item);
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -93,21 +116,33 @@ export function generate({ events, state, shopId }) {
   // field. Two people generating concurrently would otherwise each write a
   // total and the merge would keep one, possibly the smaller: too few onions,
   // and nothing would say so. §5.5.
-  const add = (bucket, ingredientId, qty, source, { afterLock = false } = {}) => {
-    const ing = ingredients.get(ingredientId);
+  const add = (bucket, ingredientId, qty, source, { afterLock = false, display = null } = {}) => {
+    const ing = ingredients.get(ingredientId) ?? display;
     let line = bucket.get(ingredientId);
     if (!line) {
       if (!ing) { problems.push({ kind: 'unknown-ingredient', ingredientId, source }); return; }
       line = {
         shopId, ingredientId, name: ing.name, unit: ing.shoppingUnit,
         category: ing.category, aisle: ing.aisle, preference: ing.preference ?? null,
-        qty: null, sources: [],
+        qty: null, sources: [], notes: [],
       };
       bucket.set(ingredientId, line);
     }
     if (qty !== null && qty !== undefined) line.qty = (line.qty ?? 0) + qty;
     line.sources.push(source);
+    if (source.note && !line.notes.includes(source.note)) line.notes.push(source.note);   // FR-WAIT-1
     if (afterLock) line.addedAfterLock = true;
+  };
+
+  // A Wait List item is usually an ingredient, but need not be: "birthday
+  // candles" used to end at "0 matches" and a dead end. One that is not gets
+  // its own line under Other, keyed by the item so its tick has a home.
+  const addWaitItem = (item, opts = {}) => {
+    const source = { kind: 'waitlist', itemId: item.id, note: item.note };
+    if (item.ingredientId) return add(main, item.ingredientId, item.qty, source, opts);
+    return add(main, `wl-${item.id}`, item.qty, source, { ...opts, display: {
+      name: item.name ?? 'Something', shoppingUnit: 'qty', category: 'Other', aisle: 'Added by hand',
+    } });
   };
 
   // One error-handling posture for the whole derivation: anything wrong with
@@ -147,9 +182,7 @@ export function generate({ events, state, shopId }) {
     for (const ing of ingredients.values()) {
       if (ing.isStaple) add(main, ing.id, ing.stapleQty ?? null, { kind: 'staple' });   // FR-STA-1
     }
-    for (const item of waitList) {
-      add(main, item.ingredientId, item.qty, { kind: 'waitlist', itemId: item.id, note: item.note });
-    }
+    for (const item of waitList) addWaitItem(item);
     // The pantry check (FR-LIST-3). Applied before additions: an explicit
     // addition is protected by FR-SYNC-1 and must never be hidden by it.
     for (const id of flags.suppressed) main.delete(id);
@@ -170,7 +203,7 @@ export function generate({ events, state, shopId }) {
     }
     for (const item of waitList) {
       if (snap.waitItems.has(item.id)) continue;
-      add(main, item.ingredientId, item.qty, { kind: 'waitlist', itemId: item.id, note: item.note }, { afterLock: true });
+      addWaitItem(item, { afterLock: true });
     }
   }
 

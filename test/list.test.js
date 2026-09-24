@@ -121,7 +121,7 @@ describe('the list, as a person sees it (review #2)', () => {
     expect(ids(generate({ events: edited, shopId: S }).lines)).toContain('eggs');
   });
 
-  it('once a shop is open, no line ever leaves the list — whatever anyone does', () => {
+  it('P9 — once a shop is open, no line ever leaves the list — whatever anyone does', () => {
     // The user-visible form of FR-SYNC-1: a line disappearing takes its tick
     // with it, as far as the person holding the phone can tell.
     const opArb = fc.oneof(

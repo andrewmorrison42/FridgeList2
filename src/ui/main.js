@@ -67,7 +67,9 @@ export async function mount(root, { storage } = {}) {
       case 'unplan':     app.unplanRecipe(args[0], args[1]); break;
       case 'servings':   app.setServings(args[0], args[1], args[2]); break;
       case 'cooked':     app.markCooked(args[0], args[1]); break;
-      case 'addWait':    app.addWaitList(args[0]); app.ui.waitSearch = ''; break;
+      case 'addWait':    app.addWaitList(args[0], { note: app.ui.waitNote }); app.ui.waitSearch = ''; app.ui.waitNote = ''; break;
+      case 'addWaitText': app.addWaitList(null, { name: args[0], note: app.ui.waitNote }); app.ui.waitSearch = ''; app.ui.waitNote = ''; break;
+      case 'waitNote':   app.ui.waitNote = args[0]; break;
       case 'removeWait': app.removeWaitList(args[0]); break;
       case 'suppress':   app.suppressLine(args[0]); break;
       case 'addLine':    app.addLine(args[0]); break;

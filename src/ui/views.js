@@ -153,8 +153,10 @@ export function listView(app, { onAction }) {
             h('span', { class: 'name' }, l.name),
             h('span', { class: 'qty' }, formatQuantity(l.qty, l.unit)),
           ),
-          // A preference note is shown only where it matters (FR-ING-3/4).
+          // A preference note is shown only where it matters (FR-ING-3/4),
+          // and a Wait List note travels with the item (FR-WAIT-1).
           l.preference && h('span', { class: 'pref' }, l.preference),
+          l.notes?.length > 0 && h('span', { class: 'pref' }, l.notes.join(' · ')),
           // Something joined this line after the list locked. If it was already
           // ticked, the quantity may now be short — say so rather than let a
           // tick silently cover less than the list asks for (§5.7).
@@ -194,9 +196,15 @@ export function waitListView(app, { onAction }) {
   const { ingredients } = app.library;
   const items = app.waitList();
   const search = app.ui.waitSearch ?? '';
-  const matches = search
-    ? [...ingredients.values()].filter((i) => i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12)
+  const note = app.ui.waitNote ?? '';
+  const typed = search.trim();
+  const matches = typed
+    ? [...ingredients.values()].filter((i) => i.name.toLowerCase().includes(typed.toLowerCase())).slice(0, 12)
     : [];
+  // Offered whenever what was typed is not exactly an ingredient: searching
+  // for something the list does not know used to be a dead end.
+  const exact = matches.some((i) => i.name.toLowerCase() === typed.toLowerCase());
+  const nameOf = (item) => item.name ?? ingredients.get(item.ingredientId)?.name ?? item.ingredientId;
 
   return h('section', {},
     h('h1', {}, 'Wait list'),
@@ -207,18 +215,25 @@ export function waitListView(app, { onAction }) {
       type: 'search', placeholder: 'Add something running low', value: search, dataset: { key: 'wait-search' },
       onInput: (e) => onAction('waitSearch', e.target.value),
     }),
-    matches.length > 0 && h('ul', { class: 'picker' },
+    typed && h('input', {
+      type: 'text', placeholder: 'Note (optional) — e.g. the big bag', value: note, dataset: { key: 'wait-note' },
+      class: 'note-input', onInput: (e) => onAction('waitNote', e.target.value),
+    }),
+    typed && h('ul', { class: 'picker' },
       matches.map((i) => h('li', {},
         h('span', { class: 'grow' }, i.name),
         h('button', { onClick: () => onAction('addWait', i.id) }, 'Add'),
       )),
+      !exact && h('li', {},
+        h('span', { class: 'grow' }, `“${typed}”`, h('small', { class: 'since' }, 'not in the ingredient list')),
+        h('button', { onClick: () => onAction('addWaitText', typed) }, 'Add'),
+      ),
     ),
 
     items.length === 0
       ? h('p', { class: 'empty' }, 'Nothing waiting.')
       : h('ul', { class: 'waitlist' }, items.map((item) => h('li', {},
-          h('span', { class: 'grow' }, ingredients.get(item.ingredientId)?.name ?? item.ingredientId),
-          item.note && h('small', {}, item.note),
+          h('div', { class: 'grow' }, h('span', {}, nameOf(item)), item.note && h('small', { class: 'since' }, item.note)),
           // Offered only when it will work. During a shop nothing can be
           // removed (§5.9); showing the button anyway made it throw (glitch #8).
           app.can.canRemoveWaitList && h('button', { onClick: () => onAction('removeWait', item.id) }, 'Remove'),

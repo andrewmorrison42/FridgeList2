@@ -268,3 +268,30 @@ describe('garnish lines (A6)', () => {
     expect(lines.map((l) => l.ingredientId)).toEqual(['flour']);
   });
 });
+
+describe('imported trip history (FR-REC-4, FR-HIST-2)', () => {
+  it('reaches the picker: a recipe chosen on an imported trip is not "never"', async () => {
+    const { cookHistory } = await import('../src/core/library.js');
+    const d = createDevice('import');
+    const trips = [
+      { shopId: 'trip:2026-08-29T05:16:33.687Z:dgv50avwy', closedAt: '2026-08-29T05:19:01.576Z', selections: ['cake'] },
+      { shopId: 'trip:2026-09-12T01:58:55.758Z:x', closedAt: '2026-09-12T01:58:55.758Z', selections: ['cake', 'pesto'] },
+    ];
+    const events = [d.emit('history.imported', { trips }, 'draft')];
+    const history = cookHistory(events);
+    expect(history.get('cake')).toBe('2026-09-12T01:58:55.758Z');    // the most recent
+    expect(history.get('pesto')).toBe('2026-09-12T01:58:55.758Z');
+  });
+
+  it('a shop closed in the app counts alongside imported history', async () => {
+    const { cookHistory } = await import('../src/core/library.js');
+    const d = createDevice('a');
+    const events = [
+      d.emit('history.imported', { trips: [{ shopId: 't', closedAt: '2026-08-01T00:00:00.000Z', selections: ['cake'] }] }, 'draft'),
+      d.emit('shop.locked', { shopId: GENESIS_SHOP, locked: true }, 'draft'),
+      d.emit('shop.closed', { shopId: GENESIS_SHOP, closed: true, nextShopId: 'shop-0002',
+        selections: ['cake'], closedAt: '2026-09-20T00:00:00.000Z' }, 'open'),
+    ];
+    expect(cookHistory(events).get('cake')).toBe('2026-09-20T00:00:00.000Z');
+  });
+});

@@ -86,7 +86,7 @@ export async function createApp({ storage } = {}) {
     can: memo(() => permissions(store.state)),
     library: memo(() => library(store.state)),
     selections: memo(() => selections(store.state)),
-    history: memo(() => cookHistory(store.events)),
+    history: memo(() => cookHistory(store.state)),
     list: memo(() => generate({ state: store.state, shopId: currentShop(store.state).id })),
     waitList: memo(() => openWaitList(store.state)),
   };
@@ -286,6 +286,9 @@ export async function createApp({ storage } = {}) {
       }
       for (const r of json.recipes ?? []) {
         events.push(device.emit('recipe.upsert', { recipeId: r.id, recipe: r }, 'draft'));
+      }
+      if (json.trips?.length) {
+        events.push(device.emit('history.imported', { trips: json.trips }, 'draft'));
       }
       return record(events);
     },

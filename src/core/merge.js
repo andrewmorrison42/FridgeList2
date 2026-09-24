@@ -25,6 +25,7 @@ const FIELD = {
   'carryover.dismissed': 'dismissed',
   'recipe.upsert': 'recipe',
   'ingredient.upsert': 'ingredient',
+  'history.imported': 'trips',
   'shop.locked': 'locked',
   'shop.closed': 'closed',
 };
@@ -43,6 +44,7 @@ const TRUE_WINS = new Set(Object.keys(FIELD));
 // the invariance comparison rather than the harness being loosened. §5.5, §14.1.
 TRUE_WINS.delete('recipe.upsert');
 TRUE_WINS.delete('ingredient.upsert');
+TRUE_WINS.delete('history.imported');
 
 // ---------------------------------------------------------------------------
 // Resolution

@@ -105,6 +105,12 @@ const MUTATIONS = [
     find: 'const signatureOf = (r) => JSON.stringify([r.value, r.by.map((e) => e.id).sort()]);',
     replace: 'const signatureOf = (r) => JSON.stringify(r.value);' },
 
+  { name: 'history-ignored',
+    rule: 'Imported trip history reaches the picker (FR-REC-4)',
+    file: 'src/core/library.js',
+    find: 'for (const trip of state.get(K.historyImported())?.value ?? []) {',
+    replace: 'for (const trip of []) {' },
+
   // -- sync (FR-SYNC-2, FR-SYNC-6, §7.4) ------------------------------------
   { name: 'unreadable-swallowed',
     rule: "A peer's unreadable file is reported, never read as healthy (#1)",

@@ -6,7 +6,7 @@
 // own files and is fetched conditionally rather than polled (§7.2).
 
 import { stateOf } from './merge.js';
-import { parseKey } from './keys.js';
+import { K, parseKey } from './keys.js';
 
 /** @returns {{ recipes: Map, ingredients: Map }} */
 export function library(events) {
@@ -28,16 +28,26 @@ export const staples = (ingredients) => [...ingredients.values()].filter((i) => 
 
 /**
  * How long since this recipe was last chosen, derived from trip history —
- * which is the set of `shop.closed` events, not a separate store. FR-REC-3,
- * FR-HIST-2, §15.3.
+ * which is the set of `shop.closed` events, plus the history carried over by
+ * the migration (§12). Not a separate store. FR-REC-3, FR-HIST-2, §15.3.
+ *
+ * The imported history was written to library.json from the start and never
+ * read, so every recipe showed "never" in the picker — the signal URS §9 asks
+ * to carry forward. Found in review v0.5.
  */
 export function cookHistory(events) {
+  const state = stateOf(events);
   const last = new Map();
-  for (const e of events) {
-    if (e.type !== 'shop.closed') continue;
-    for (const recipeId of e.payload.selections ?? []) {
-      const at = e.payload.closedAt ?? e.ts;
-      if (!last.has(recipeId) || last.get(recipeId) < at) last.set(recipeId, at);
+  const note = (recipeId, at) => {
+    if (at && (!last.has(recipeId) || last.get(recipeId) < at)) last.set(recipeId, at);
+  };
+  for (const trip of state.get(K.historyImported())?.value ?? []) {
+    for (const recipeId of trip.selections ?? []) note(recipeId, trip.closedAt);
+  }
+  for (const [key, reg] of state) {
+    if (parseKey(key)?.kind !== 'shopClosed' || reg.value !== true) continue;
+    for (const e of reg.by) {
+      for (const recipeId of e.payload.selections ?? []) note(recipeId, e.payload.closedAt ?? e.ts);
     }
   }
   return last;

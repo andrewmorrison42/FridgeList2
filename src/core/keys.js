@@ -34,6 +34,11 @@ export const K = {
   shopClosed:         (shopId) => `shop:${seg(shopId, 'shopId')}:closed`,
   recipe:             (recipeId) => `recipe:${seg(recipeId, 'recipeId')}`,
   ingredient:         (ingredientId) => `ingredient:${seg(ingredientId, 'ingredientId')}`,
+  // One register for all imported history. Imported trip ids contain the
+  // separator ("trip:2026-08-29T05:16:33.687Z:…"), so they cannot be key
+  // segments; carrying the trips as a single value sidesteps that, and
+  // re-importing simply replaces it.
+  historyImported:    () => 'history:imported',
 };
 
 /** Readers: the exact inverse of the builders above. */
@@ -50,6 +55,7 @@ const PATTERNS = [
   ['shopClosed',         /^shop:([^:]+):closed$/,             ['shopId']],
   ['recipe',             /^recipe:([^:]+)$/,                  ['recipeId']],
   ['ingredient',         /^ingredient:([^:]+)$/,              ['ingredientId']],
+  ['historyImported',    /^history:imported$/,                []],
 ];
 
 /** Read a key back into its kind and fields, or null if it is not ours. */
@@ -83,6 +89,7 @@ export function keyOf(event) {
     case 'shop.closed':         return K.shopClosed(p.shopId);
     case 'recipe.upsert':       return K.recipe(p.recipeId);
     case 'ingredient.upsert':   return K.ingredient(p.ingredientId);
+    case 'history.imported':    return K.historyImported();
     default: throw new Error(`unkeyed event type: ${event.type}`);
   }
 }

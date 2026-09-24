@@ -21,7 +21,7 @@ describe('keys.js (review #3)', () => {
       lineSuppressed: ['shopId', 'ingredientId'], menuPresent: ['recipeId'], menuCooked: ['recipeId'],
       menuCarried: ['recipeId', 'shopId'], waitlistPresent: ['itemId'],
       carryoverDismissed: ['shopId', 'ingredientId'], shopLocked: ['shopId'], shopClosed: ['shopId'],
-      recipe: ['recipeId'], ingredient: ['ingredientId'],
+      recipe: ['recipeId'], ingredient: ['ingredientId'], historyImported: [],
     };
     expect(Object.keys(ARGS).sort()).toEqual(Object.keys(K).sort());   // no builder untested
     fc.assert(fc.property(fc.constantFrom(...Object.keys(ARGS)), id, id, (kind, a, b) => {

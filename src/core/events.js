@@ -27,6 +27,7 @@ const PERMITTED = {
   // whoever is cooking cannot alter a list someone is shopping from.
   'recipe.upsert':     ['draft', 'open', 'closed'],
   'ingredient.upsert': ['draft', 'open', 'closed'],
+  'history.imported':  ['draft', 'open', 'closed'],   // the migration's trips (§12)
   'shop.locked':     ['draft'],
   'shop.closed':     ['open'],
 };

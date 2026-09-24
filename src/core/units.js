@@ -41,12 +41,18 @@ export function scaleForServings(quantity, wantServings, recipeServings) {
 
 /**
  * How a quantity is shown. Shopping happens in a supermarket, not a laboratory:
- * 1,013.4 g of flour helps nobody, and nor does 0.30000000000000004.
+ * 1,013.4 g of flour helps nobody, and nor does 0.30000000000000004 — or
+ * "6000 mL" of milk, which is bought as 6 L (glitch #11).
  */
 export function formatQuantity(quantity, unit) {
   // A line added by hand ("we need mayo") has no quantity. Showing "1 g" would
   // be a number nobody chose.
   if (quantity === null || quantity === undefined) return '';
+  const big = { g: 'kg', mL: 'L' }[unit];
+  if (big && quantity >= 1000) {
+    const n = Math.round(quantity / 100) / 10;                 // one decimal place
+    return `${Number.isInteger(n) ? n : n.toFixed(1)} ${big}`;
+  }
   const rounded =
     unit === 'qty' ? Math.ceil(quantity * 100) / 100
     : quantity >= 100 ? Math.round(quantity / 10) * 10
@@ -54,3 +60,19 @@ export function formatQuantity(quantity, unit) {
   const n = Number.isInteger(rounded) ? rounded : Number(rounded.toFixed(2));
   return unit === 'qty' ? `${n}` : `${n} ${unit}`;
 }
+
+/**
+ * One line of a recipe, the way the recipe reads: "2 cup Wine: white" where
+ * the recipe was written in cups, "300 g Mushrooms" where it was written in
+ * what is bought, "1 Leek" for a count. Before glitch #12 a count read
+ * "1  Leek" and a weighed line lost its unit entirely.
+ */
+export function describeRecipeLine(line, ingredient) {
+  const name = ingredient?.name ?? line.ingredientId;
+  if (line.garnish || line.quantity === 0) return `${name}, to serve`;
+  const qty = line.displayQty ?? (line.cookingUnit ? line.quantity : formatAmount(line.quantity));
+  const unit = line.displayUnit ?? line.cookingUnit ?? (ingredient?.shoppingUnit === 'qty' ? null : ingredient?.shoppingUnit);
+  return [qty, unit, name].filter((part) => part !== null && part !== undefined && part !== '').join(' ');
+}
+
+const formatAmount = (n) => (Number.isInteger(n) ? n : Number(n.toFixed(2)));

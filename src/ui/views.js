@@ -6,7 +6,7 @@
 
 import { h } from './dom.js';
 import { groupForDisplay } from '../core/generate.js';
-import { formatQuantity } from '../core/units.js';
+import { formatQuantity, describeRecipeLine } from '../core/units.js';
 import { sinceLabel } from '../core/library.js';
 import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
@@ -208,10 +208,7 @@ export function recipesView(app, { onAction }) {
       h('h1', {}, r.name),
       h('p', { class: 'hint' }, `Serves ${r.servings} · last chosen ${sinceLabel(history.get(r.id))}`),
       h('h2', {}, 'Ingredients'),
-      h('ul', {}, (r.lines ?? []).map((l) => h('li', {},
-        `${l.displayQty ?? l.quantity} ${l.displayUnit ?? l.cookingUnit ?? ''} `,
-        ingredients.get(l.ingredientId)?.name ?? l.ingredientId,
-      ))),
+      h('ul', {}, (r.lines ?? []).map((l) => h('li', {}, describeRecipeLine(l, ingredients.get(l.ingredientId))))),
       r.method?.length > 0 && h('div', {},
         h('h2', {}, 'Method'),
         h('ol', {}, r.method.map((step) => h('li', {}, step))),

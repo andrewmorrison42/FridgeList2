@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { createDevice } from '../src/core/events.js';
-import { toShoppingUnit, scaleForServings, formatQuantity } from '../src/core/units.js';
+import { toShoppingUnit, scaleForServings, formatQuantity, describeRecipeLine } from '../src/core/units.js';
 import { selections, PLANNED, CARRIED, FLAGGED, COOKED } from '../src/core/carryover.js';
 import { generate, groupForDisplay } from '../src/core/generate.js';
 import { currentShop, nextShopId, permissions, explainRefusal, GENESIS_SHOP } from '../src/core/shop.js';
@@ -45,9 +45,27 @@ describe('units (FR-ING-1)', () => {
   });
 
   it('formats for a supermarket, not a laboratory', () => {
-    expect(formatQuantity(1013.4, 'g')).toBe('1010 g');
     expect(formatQuantity(2.5, 'qty')).toBe('2.5');
     expect(formatQuantity(63.2, 'g')).toBe('63 g');
+    expect(formatQuantity(430, 'mL')).toBe('430 mL');
+  });
+
+  it('reads large amounts the way they are bought: litres and kilograms (glitch #11)', () => {
+    expect(formatQuantity(6000, 'mL')).toBe('6 L');        // not "6000 mL" of milk
+    expect(formatQuantity(15880, 'mL')).toBe('15.9 L');
+    expect(formatQuantity(1500, 'g')).toBe('1.5 kg');
+    expect(formatQuantity(1013.4, 'g')).toBe('1 kg');
+    expect(formatQuantity(950, 'g')).toBe('950 g');        // under a kilo stays in grams
+  });
+
+  it('a recipe line reads the way the recipe was written (glitch #12)', () => {
+    const leek = { id: 'leek', name: 'Leek', shoppingUnit: 'qty' };
+    const mush = { id: 'mush', name: 'Mushrooms', shoppingUnit: 'g' };
+    const wine = { id: 'wine', name: 'Wine: white', shoppingUnit: 'mL' };
+    expect(describeRecipeLine({ ingredientId: 'leek', quantity: 1 }, leek)).toBe('1 Leek');           // not "1  Leek"
+    expect(describeRecipeLine({ ingredientId: 'mush', quantity: 300 }, mush)).toBe('300 g Mushrooms'); // unit shown
+    expect(describeRecipeLine({ ingredientId: 'wine', quantity: 500, displayQty: '2', displayUnit: 'cup' }, wine)).toBe('2 cup Wine: white');
+    expect(describeRecipeLine({ ingredientId: 'x', quantity: 0, garnish: true }, leek)).toBe('Leek, to serve');
   });
 });
 

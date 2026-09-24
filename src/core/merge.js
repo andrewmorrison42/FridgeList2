@@ -140,6 +140,14 @@ export function merge(events) {
   return state;
 }
 
+/**
+ * Every derivation in core accepts either raw events or an already-merged
+ * state, and calls this first. Tests pass events; the app passes the store's
+ * state so nothing is merged twice. One rule, applied everywhere, rather than
+ * two parallel sets of functions.
+ */
+export const stateOf = (x) => (x instanceof Map ? x : merge(x));
+
 /** Convenience: is this line ticked? */
 export function isDone(events, shopId, ingredientId) {
   const r = merge(events).get(`line:${shopId}:${ingredientId}:done`);

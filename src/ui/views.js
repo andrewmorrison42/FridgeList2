@@ -74,9 +74,9 @@ export function planView(app, { onAction }) {
 
 export function listView(app, { onAction }) {
   const { id, phase } = app.shop;
-  const { lines, carryOver, problems } = app.list();
-  const suppressed = (ingredientId) => app.store.get(`line:${id}:${ingredientId}:suppressed`) === true;
-  const visible = lines.filter((l) => !suppressed(l.ingredientId));
+  // The list arrives fully derived — suppression, additions and the lock
+  // snapshot already applied in core. A view renders; it does not decide.
+  const { lines: visible, carryOver, problems } = app.list();
   const done = (l) => app.store.get(`line:${id}:${l.ingredientId}:done`) === true;
 
   const categoryOrder = ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'];
@@ -118,6 +118,11 @@ export function listView(app, { onAction }) {
           ),
           // A preference note is shown only where it matters (FR-ING-3/4).
           l.preference && h('span', { class: 'pref' }, l.preference),
+          // Something joined this line after the list locked. If it was already
+          // ticked, the quantity may now be short — say so rather than let a
+          // tick silently cover less than the list asks for (§5.7).
+          l.addedAfterLock && h('span', { class: 'after-lock' },
+            done(l) ? 'more needed since ticked' : 'added during shop'),
           app.can.canRemoveLines && h('button', {
             class: 'ghost', onClick: () => onAction('suppress', l.ingredientId),
           }, 'Have it'),

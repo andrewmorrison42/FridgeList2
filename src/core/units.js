@@ -44,6 +44,9 @@ export function scaleForServings(quantity, wantServings, recipeServings) {
  * 1,013.4 g of flour helps nobody, and nor does 0.30000000000000004.
  */
 export function formatQuantity(quantity, unit) {
+  // A line added by hand ("we need mayo") has no quantity. Showing "1 g" would
+  // be a number nobody chose.
+  if (quantity === null || quantity === undefined) return '';
   const rounded =
     unit === 'qty' ? Math.ceil(quantity * 100) / 100
     : quantity >= 100 ? Math.round(quantity / 10) * 10

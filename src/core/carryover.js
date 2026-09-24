@@ -4,7 +4,7 @@
 // so it either gets cooked or is deliberately removed. It carries for one
 // further week only; after that the household is made to decide.
 
-import { merge } from './merge.js';
+import { stateOf } from './merge.js';
 
 export const PLANNED = 'planned';
 export const COOKED = 'cooked';
@@ -20,7 +20,7 @@ export const FLAGGED = 'flagged';
  * harmless; incrementing twice would send the entry to FLAGGED a week early.
  */
 export function selections(events) {
-  const state = merge(events);
+  const state = stateOf(events);
   const out = new Map();
 
   for (const [key, reg] of state) {

@@ -132,12 +132,22 @@ describe('carry-over (FR-MENU-3 to FR-MENU-5, §9.1)', () => {
   });
 });
 
+/** The library as events, so tests derive exactly as the app does. */
+function gen(lib, { events, shopId }) {
+  const d = createDevice('lib');
+  const libEvents = [
+    ...[...lib.ingredients.values()].map((i) => d.emit('ingredient.upsert', { ingredientId: i.id, ingredient: i }, 'draft')),
+    ...[...lib.recipes.values()].map((r) => d.emit('recipe.upsert', { recipeId: r.id, recipe: r }, 'draft')),
+  ];
+  return generate({ events: [...libEvents, ...events], shopId });
+}
+
 describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
   const d = createDevice('a');
   const planned = [d.emit('menu.selection', { recipeId: 'cake', present: true, servings: 8, plannedFor: 'shop-0001' }, 'draft')];
 
   it('converts, scales, and includes staples automatically', () => {
-    const { lines } = generate(library, { events: planned, shopId: 'shop-0001' });
+    const { lines } = gen(library, { events: planned, shopId: 'shop-0001' });
     const byId = Object.fromEntries(lines.map((l) => [l.ingredientId, l]));
     expect(byId.flour.qty).toBe(500);            // 2 cups at 250 g
     expect(byId.milk.qty).toBe(6000);            // staple, never selected (FR-STA-1)
@@ -146,7 +156,7 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
   it('sums one line per ingredient across sources, not one per source', () => {
     const events = [...planned,
       d.emit('menu.selection', { recipeId: 'cake', present: true, servings: 16, plannedFor: 'shop-0001' }, 'draft')];
-    const { lines } = generate(library, { events, shopId: 'shop-0001' });
+    const { lines } = gen(library, { events, shopId: 'shop-0001' });
     expect(lines.filter((l) => l.ingredientId === 'flour')).toHaveLength(1);
   });
 
@@ -154,7 +164,7 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
     const c = createDevice('c');
     let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
     events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
-    const { lines, carryOver } = generate(library, { events, shopId: 'shop-0002' });
+    const { lines, carryOver } = gen(library, { events, shopId: 'shop-0002' });
     expect(lines.map((l) => l.ingredientId)).toEqual(['milk']);        // staple only
     expect(carryOver.map((l) => l.ingredientId).sort()).toEqual(['basil', 'capsicum']);
   });
@@ -169,7 +179,7 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
       ...library,
       recipes: new Map([...library.recipes, ['pesto2', { id: 'pesto2', name: 'More pesto', servings: 4, lines: [{ ingredientId: 'basil', quantity: 1, cookingUnit: 'cup' }] }]]),
     };
-    const { lines, carryOver } = generate(lib, { events, shopId: 'shop-0002' });
+    const { lines, carryOver } = gen(lib, { events, shopId: 'shop-0002' });
     expect(lines.map((l) => l.ingredientId)).toContain('basil');
     expect(carryOver.map((l) => l.ingredientId)).not.toContain('basil');
   });
@@ -178,12 +188,13 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
     const c = createDevice('c');
     let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
     events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
-    const { carryOver } = generate(library, { events, shopId: 'shop-0002', dismissed: new Set(['basil']) });
+    events = [...events, c.emit('carryover.dismissed', { shopId: 'shop-0002', ingredientId: 'basil', dismissed: true }, 'draft')];
+    const { carryOver } = gen(library, { events, shopId: 'shop-0002' });
     expect(carryOver.map((l) => l.ingredientId)).toEqual(['capsicum']);
   });
 
   it('groups by category then aisle, never alphabetically (FR-LIST-6)', () => {
-    const { lines } = generate(library, {
+    const { lines } = gen(library, {
       events: [d.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')],
       shopId: 'shop-0001',
     });
@@ -199,8 +210,6 @@ describe('generation (FR-LIST-1/2, FR-MENU-7, §10)', () => {
 
 describe('garnish lines (A6)', () => {
   it('a zero-quantity "to serve" line never reaches the shopping list', async () => {
-    const { generate } = await import('../src/core/generate.js');
-    const { createDevice } = await import('../src/core/events.js');
     const lettuce = { id: 'lettuce', name: 'Lettuce', shoppingUnit: 'qty', category: 'Fruit and Vegetables', aisle: 'Vegetables' };
     const lib = {
       ingredients: new Map([['lettuce', lettuce], ['flour', flour]]),
@@ -211,7 +220,7 @@ describe('garnish lines (A6)', () => {
     };
     const d = createDevice('g');
     const events = [d.emit('menu.selection', { recipeId: 'tacos', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
-    const { lines } = generate(lib, { events, shopId: 'shop-0001' });
+    const { lines } = gen(lib, { events, shopId: 'shop-0001' });
     expect(lines.map((l) => l.ingredientId)).toEqual(['flour']);
   });
 });

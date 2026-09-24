@@ -7,10 +7,10 @@
 // property test is watching.
 
 import { createStore } from '../core/store.js';
-import { currentShop, nextShopId, permissions, explainRefusal } from '../core/shop.js';
+import { currentShop, nextShopId, permissions, explainRefusal, lockEvent } from '../core/shop.js';
 import { library, cookHistory } from '../core/library.js';
 import { selections, carryOverTransitions } from '../core/carryover.js';
-import { generate } from '../core/generate.js';
+import { generate, openWaitList } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { createMemoryStorage } from '../data/storage.js';
 import { createOneDriveStorage } from '../data/onedrive.js';
@@ -83,29 +83,17 @@ export async function createApp({ storage } = {}) {
     get staleness() { return staleness(sync.status(), roster); },
     why: (action) => explainRefusal(store.events, action),
 
-    /** The generated list for the current shop, derived — never stored (§5.5). */
+    /**
+     * The list for the current shop. Derived in core (generate.js) and nowhere
+     * else: suppression, dismissals, additions and the lock snapshot are all
+     * applied there, so every reader — this screen, the close report, the
+     * print sheet — sees the same list. Review #2.
+     */
     list() {
-      const { id } = currentShop(store.events);
-      const dismissed = new Set(
-        [...store.state].filter(([k, v]) => k.startsWith(`carryover:${id}:`) && v.value === true)
-          .map(([k]) => k.split(':')[2]),
-      );
-      return generate(this.library, {
-        events: store.events, shopId: id, waitList: this.waitList(), dismissed,
-      });
+      return generate({ state: store.state, shopId: currentShop(store.state).id });
     },
 
-    waitList() {
-      const out = [];
-      for (const [key, reg] of store.state) {
-        const m = /^waitlist:(.+):present$/.exec(key);
-        if (m && reg.value === true) {
-          const p = reg.by[0]?.payload ?? {};
-          out.push({ id: m[1], ingredientId: p.ingredientId, note: p.note ?? null, qty: p.qty ?? 1 });
-        }
-      }
-      return out;
-    },
+    waitList() { return openWaitList(store.state); },
 
     // -- actions ------------------------------------------------------------
 
@@ -172,10 +160,14 @@ export async function createApp({ storage } = {}) {
       return this.list();
     },
 
-    /** "Menu is settled" — one press locks it for everyone (§8.1). */
+    /**
+     * "Menu is settled" — one press locks it for everyone (§8.1). The event
+     * carries the list as this device sees it, so the open shop is immune to
+     * library edits (§6).
+     */
     lockShop() {
-      const { id } = currentShop(store.events);
-      return record(device.emit('shop.locked', { shopId: id, locked: true }, 'draft'));
+      const { id } = currentShop(store.state);
+      return record(lockEvent(device, id, this.list().lines, store.state));
     },
 
     /** "Shopping is completed" (FR-SHOP-4). Writes the trip record with it. */

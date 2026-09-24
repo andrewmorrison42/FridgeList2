@@ -7,7 +7,8 @@
 // exists — and two concurrent closes name the same successor rather than
 // forking the chain.
 
-import { merge } from './merge.js';
+import { stateOf } from './merge.js';
+import { selections, PLANNED } from './carryover.js';
 
 export const GENESIS_SHOP = 'shop-0001';
 
@@ -26,7 +27,7 @@ export function nextShopId(shopId) {
  * (§5.4), so concurrent locks or closes converge rather than conflict.
  */
 export function shopPhases(events) {
-  const state = merge(events);
+  const state = stateOf(events);
   const phases = new Map();
   for (const [key, reg] of state) {
     const m = /^shop:([^:]+):(locked|closed)$/.exec(key);
@@ -79,6 +80,25 @@ export function permissions(events) {
     canLock: draft,
     canClose: phase === 'open',           // FR-SHOP-4
   };
+}
+
+/**
+ * The "Menu is settled" event. It carries the list exactly as the locking
+ * device sees it, so the open shop holds its own resolved lines (§6): a recipe
+ * edited mid-shop by whoever is cooking cannot alter — or remove a ticked line
+ * from — a list someone is standing in a shop holding.
+ *
+ * Display fields travel with each line for the same reason: a rename during
+ * the shop does not change what the shopper reads.
+ */
+export function lockEvent(device, shopId, lines, events) {
+  const planned = [...selections(events).values()]
+    .filter((s) => s.status === PLANNED).map((s) => s.recipeId).sort();
+  return device.emit('shop.locked', {
+    shopId, locked: true, selections: planned,
+    lines: lines.map(({ ingredientId, name, unit, category, aisle, preference, qty, sources }) =>
+      ({ ingredientId, name, unit, category, aisle, preference, qty, sources })),
+  }, 'draft');
 }
 
 /**

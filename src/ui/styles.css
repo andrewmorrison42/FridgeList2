@@ -93,6 +93,7 @@ label { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; cursor: p
 li.done .name { text-decoration: line-through; color: var(--done); }
 li.done .qty { color: var(--done); }
 .pref { font-size: .75rem; color: var(--accent); }
+.after-lock { font-size: .72rem; color: var(--warn); white-space: nowrap; }
 .count { color: var(--muted); font-size: .88rem; }
 .hint { color: var(--muted); font-size: .84rem; }
 .empty { color: var(--muted); padding: 16px 0; }

@@ -5,11 +5,11 @@
 // recipes and 452 ingredients for this household — which is why it lives in its
 // own files and is fetched conditionally rather than polled (§7.2).
 
-import { merge } from './merge.js';
+import { stateOf } from './merge.js';
 
 /** @returns {{ recipes: Map, ingredients: Map }} */
 export function library(events) {
-  const state = merge(events);
+  const state = stateOf(events);
   const recipes = new Map();
   const ingredients = new Map();
 

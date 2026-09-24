@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "mutate": "node tools/mutate.js",
     "test:ui": "vitest run --config vitest.ui.config.js",
-    "check": "npm test && npm run test:ui"
+    "check": "npm test && npm run test:ui",
+    "screens": "node tools/screens.js"
   },
   "devDependencies": {
     "fast-check": "^3.23.2",

@@ -123,3 +123,25 @@ describe('a household over several weeks', () => {
     }), { numRuns: 60 });
   });
 });
+
+describe('servings (FR-MENU-1 — unbuilt until v0.6)', () => {
+  it('changing a planned meal\'s servings scales what is bought for it', async () => {
+    const h = await household();
+    h.app.planRecipe('laksa', 4);
+    const qty = () => h.app.list().lines.find((l) => l.ingredientId === 'noodles').qty;
+    expect(qty()).toBe(400);
+    h.app.setServings('laksa', h.sel('laksa').plannedFor, 8);
+    expect(h.sel('laksa').servings).toBe(8);
+    expect(qty()).toBe(800);
+  });
+
+  it('servings are part of the menu, so they lock with it (FR-SHOP-3)', async () => {
+    const h = await household();
+    h.app.planRecipe('laksa', 4);
+    h.app.lockShop();
+    expect(h.app.can.canEditMenu).toBe(false);
+    // The specific refusal, not just any error — a bare toThrow() passed here
+    // before setServings existed at all.
+    expect(() => h.app.setServings('laksa', h.sel('laksa').plannedFor, 8)).toThrow(/not permitted while a shop is open/);
+  });
+});

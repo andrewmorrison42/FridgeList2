@@ -65,6 +65,7 @@ export async function mount(root, { storage } = {}) {
       case 'openRecipe': app.ui.openRecipe = args[0]; break;
       case 'plan':       app.planRecipe(args[0], args[1]); break;
       case 'unplan':     app.unplanRecipe(args[0], args[1]); break;
+      case 'servings':   app.setServings(args[0], args[1], args[2]); break;
       case 'cooked':     app.markCooked(args[0], args[1]); break;
       case 'addWait':    app.addWaitList(args[0]); app.ui.waitSearch = ''; break;
       case 'removeWait': app.removeWaitList(args[0]); break;

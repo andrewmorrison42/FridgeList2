@@ -40,13 +40,22 @@ export function planView(app, { onAction }) {
         return h('li', { class: `sel ${sel.status}` },
           h('div', { class: 'grow' },
             h('strong', {}, recipe?.name ?? sel.recipeId),
-            h('span', { class: 'status' }, STATUS_LABEL[sel.status]),
+            h('span', { class: 'sel-status' }, STATUS_LABEL[sel.status]),
             // A Flagged entry has carried once already and must be resolved,
             // not carried silently again (FR-MENU-5).
             sel.status === FLAGGED && h('span', { class: 'nudge' },
               'Cook it, remove it, or plan it again'),
           ),
-          h('span', { class: 'servings' }, `${sel.servings}`),
+          // How many it is for (FR-MENU-1), adjustable while it is still this
+          // week's plan; a carried meal is re-planned to change it.
+          sel.status === PLANNED
+            ? h('span', { class: 'stepper', 'aria-label': 'servings' },
+                h('button', { class: 'step', 'aria-label': 'fewer', disabled: sel.servings <= 1,
+                  onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings - 1) }, '−'),
+                h('span', { class: 'servings' }, `${sel.servings}`),
+                h('button', { class: 'step', 'aria-label': 'more',
+                  onClick: () => onAction('servings', sel.recipeId, sel.plannedFor, sel.servings + 1) }, '+'))
+            : h('span', { class: 'servings' }, `${sel.servings}`),
           sel.status !== COOKED && h('button', { onClick: () => onAction('cooked', sel.recipeId, sel.plannedFor) }, 'Cooked'),
           h('button', { onClick: () => onAction('unplan', sel.recipeId, sel.plannedFor) }, 'Remove'),
         );

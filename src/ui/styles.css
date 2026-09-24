@@ -43,13 +43,16 @@ small { color: var(--muted); }
 
 /* --- status header ------------------------------------------------------ */
 
-.status {
+/* The header. Scoped to the element: as a bare .status these rules — sticky
+   position, padding, a bottom border — also landed on every meal's "Planned"
+   label, which shares nothing with the header but a word. */
+header.status {
   position: sticky; top: 0; z-index: 5;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   padding: max(8px, env(safe-area-inset-top)) 16px 8px;
 }
-.status.warn { background: var(--warn-bg); }
+header.status.warn { background: var(--warn-bg); }
 .status-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .phase { font-weight: 650; }
 .sync { color: var(--muted); font-size: .82rem; }
@@ -99,7 +102,12 @@ li.done .qty { color: var(--done); }
 .hint { color: var(--muted); font-size: .84rem; }
 .empty { color: var(--muted); padding: 16px 0; }
 .since { color: var(--muted); font-size: .78rem; white-space: nowrap; }
-.servings { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* In the picker the last-chosen date sits under the name — inline, the two ran
+   together as "Afghan Biscuitsnever". */
+.picker .grow .since { display: block; }
+.servings { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.6em; text-align: center; }
+.stepper { display: inline-flex; align-items: center; gap: 2px; }
+.step { min-width: var(--tap); padding: 0; font-size: 1.1rem; }
 
 .group { margin-top: 16px; }
 .aisle { margin-left: 2px; }
@@ -109,10 +117,15 @@ li.done .qty { color: var(--done); }
 .carry { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: 12px 0; }
 .carry h2 { margin-top: 4px; }
 
-.sel .status { font-size: .75rem; color: var(--muted); margin-left: 8px; }
-.sel.carried .status { color: var(--warn); }
+/* A chosen meal is two lines: its name and status, then its controls. On one
+   line the stepper, Cooked and Remove crushed the name to a word per line and
+   overlapped it. */
+.sel { flex-wrap: wrap; row-gap: 4px; padding: 8px 0; }
+.sel > .grow { flex: 1 1 100%; }
+.sel-status { display: block; font-size: .75rem; color: var(--muted); }
+.sel.carried .sel-status { color: var(--warn); }
 .sel.flagged { background: var(--warn-bg); }
-.sel.flagged .status { color: var(--warn); font-weight: 600; }
+.sel.flagged .sel-status { color: var(--warn); font-weight: 600; }
 .nudge { display: block; font-size: .75rem; color: var(--warn); }
 
 .refusal { border: 1px solid var(--warn); background: var(--warn-bg);

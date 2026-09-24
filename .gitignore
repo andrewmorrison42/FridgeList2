@@ -1,3 +1,5 @@
 node_modules/
 shot-*.png
 drive.tmp.mjs
+screens/
+look-*.png

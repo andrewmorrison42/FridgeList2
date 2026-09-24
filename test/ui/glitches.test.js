@@ -99,6 +99,50 @@ describe('as a person uses it', () => {
     await p.close();
   });
 
+  it('servings: tapping + on a planned meal changes how many it is for (FR-MENU-1)', async () => {
+    const p = await phone(browser, server.url);
+    await p.app(() => window.app.planRecipe('fish-laksa', 4));
+    await p.tab('Plan');
+    const count = p.page.locator('.chosen .stepper .servings').first();
+    expect(await count.textContent()).toBe('4');
+    await p.tap(p.page.locator('.chosen button[aria-label=more]').first());
+    expect(await count.textContent()).toBe('5');
+    await p.close();
+  });
+
+  it('on every screen, nothing on a row sits on top of anything else on it', async () => {
+    // Found by looking, not by asserting: the servings stepper crushed each
+    // meal's name to a word per line and overlapped it. This checks every
+    // row's visible leaves — text, buttons, boxes — pairwise, on every screen.
+    const p = await phone(browser, server.url);
+    await p.app(() => {
+      for (const r of ['fish-laksa', 'rosemary-garlic-roast-lamb', 'baked-vegie-samosas']) window.app.planRecipe(r, 6);
+      const ing = [...window.app.library.ingredients.values()];
+      window.app.addWaitList(ing.find((i) => i.name === 'Mayonnaise').id);
+    });
+    const overlaps = async () => p.page.evaluate(() => {
+      const found = [];
+      for (const row of document.querySelectorAll('main li')) {
+        const leaves = [...row.querySelectorAll('*')].filter((e) => e.children.length === 0)
+          .map((e) => [e, e.getBoundingClientRect()]).filter(([, r]) => r.width > 0 && r.height > 0);
+        for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
+          const [a, ra] = leaves[i]; const [b, rb] = leaves[j];
+          const w = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+          const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+          if (w > 2 && h > 2) found.push(`${a.textContent.trim() || a.tagName} / ${b.textContent.trim() || b.tagName}`);
+        }
+      }
+      return found;
+    });
+    const seen = [];
+    for (const phase of ['planning', 'shopping']) {
+      if (phase === 'shopping') await p.app(() => window.app.lockShop());
+      for (const tab of ['List', 'Plan', 'Wait', 'Recipes']) { await p.tab(tab); seen.push(...(await overlaps()).map((o) => `${phase}/${tab}: ${o}`)); }
+    }
+    expect(seen.slice(0, 5)).toEqual([]);
+    await p.close();
+  });
+
   it('#9 — paste the client id, tap Connect once, and you are sent to sign in', async () => {
     const p = await phone(browser, server.url, { hash: '#settings' });
     let signIn = false;

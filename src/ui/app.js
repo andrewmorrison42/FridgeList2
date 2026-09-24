@@ -172,6 +172,17 @@ export async function createApp({ storage } = {}) {
       return record(events);
     },
 
+    /**
+     * How many this meal is for (FR-MENU-1). A fresh save of the selection;
+     * the latest save wins by the same deterministic order on every device.
+     * Part of the menu, so it locks with it (FR-SHOP-3).
+     */
+    setServings(recipeId, plannedFor, servings) {
+      const { phase } = currentShop(store.state);
+      const n = Math.max(1, Math.round(servings));
+      return record(device.emit('menu.selection', { recipeId, plannedFor, present: true, servings: n }, phase));
+    },
+
     unplanRecipe(recipeId, plannedFor) {
       const { phase } = currentShop(store.state);
       return record(device.emit('menu.selection', { recipeId, plannedFor, present: false }, phase));

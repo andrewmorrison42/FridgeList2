@@ -7,7 +7,11 @@
 
 // Bump whenever SHELL changes, so installed copies re-install and pick it up.
 // test/shell.test.js checks SHELL against the files that actually exist.
-const CACHE = 'fridgelist-v3';
+// Only caches with this app's prefix are ever deleted. The original FridgeList
+// is served from the same origin, and deleting every other cache would take its
+// offline copy with it — the one you would fall back to in a dead spot.
+const PREFIX = 'fridgelist2-';
+const CACHE = `${PREFIX}v3`;
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',
@@ -25,7 +29,7 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 

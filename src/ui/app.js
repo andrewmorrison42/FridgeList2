@@ -27,7 +27,7 @@ export const STALE_RECIPE =
 export function readConfig() {
   return {
     clientId: local.get('clientId', ''),
-    folder: local.get('folder', '/FridgeList'),
+    folder: local.get('folder', '/FridgeList2'),
     storageMode: local.get('storageMode', 'local'),
     authError: null,
   };

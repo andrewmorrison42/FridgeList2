@@ -32,3 +32,28 @@ describe('service worker shell (review #7)', () => {
     expect(shell.filter((f) => !existsSync(f))).toEqual([]);
   });
 });
+
+describe('sharing an origin with the original FridgeList', () => {
+  it('activating the service worker deletes only this app\'s old caches', async () => {
+    const handlers = {};
+    const caches = new Map([['fridgelist-v1', 1], ['fridgelist2-v1', 1], ['other-app', 1]]);
+    const self = {
+      location: { origin: 'https://x.github.io' },
+      addEventListener: (type, fn) => { handlers[type] = fn; },
+      clients: { claim: async () => {} },
+    };
+    const cacheApi = { keys: async () => [...caches.keys()], delete: async (k) => caches.delete(k) };
+    new Function('self', 'caches', readFileSync('sw.js', 'utf8'))(self, cacheApi);
+    let done;
+    handlers.activate({ waitUntil: (p) => { done = p; } });
+    await done;
+    expect([...caches.keys()].sort()).toEqual(['fridgelist-v1', 'other-app']);
+  });
+
+  it('every name stored on the device is this app\'s own', () => {
+    for (const f of ['src/data/persist.js', 'src/data/auth.js']) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/['`]fridgelist[.'-]/);
+    }
+  });
+});

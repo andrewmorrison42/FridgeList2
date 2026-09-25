@@ -82,7 +82,7 @@ which is why the app uses the authorisation code flow with PKCE (`src/data/auth.
 
 1. Open the app, go to the **Setup** tab
 2. Paste the same **Application (client) ID** — the same one on every device
-3. Leave **Folder** as `/FridgeList` unless you want it elsewhere
+3. Leave **Folder** as `/FridgeList2` unless you want it elsewhere
 4. Tap **Connect to OneDrive** and sign in with the household's shared
    Microsoft account — the same account on every device
 5. Give the device a **Name** ("Dad's phone") so the list can say who ticked what
@@ -90,6 +90,21 @@ which is why the app uses the authorisation code flow with PKCE (`src/data/auth.
 The first device to connect creates the folder and uploads the library; the
 rest pick it up on their next sync. Data appears in OneDrive under `FridgeList`
 as plain JSON you can read, copy or back up by hand.
+
+### Running alongside the original FridgeList
+
+Both repositories publish to the same site, `https://<user>.github.io/`, so the
+browser treats them as one origin. This app names everything it stores
+`fridgelist2…` and only ever deletes its own caches, so the two cannot read or
+wipe each other's data on a phone.
+
+- **Azure:** add `https://<user>.github.io/FridgeList2/` as a second **SPA**
+  redirect URI on the existing registration (**Authentication → Add URI**), and
+  use the same client ID in both apps. Or register a second app if you want them
+  fully separate — either works.
+- **Folder:** keep FridgeList2 on `/FridgeList2`. Never point both apps at the
+  same folder: they use different file formats.
+- **Home screen:** add each URL separately; they install as two apps.
 
 For local testing, register `http://localhost:8099/` as a second SPA redirect
 URI on the same app registration.

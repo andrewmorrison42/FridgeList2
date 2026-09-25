@@ -17,7 +17,7 @@ const GRAPH = 'https://graph.microsoft.com/v1.0';
  * @param {() => Promise<string>} opts.getToken  supplies a current access token
  * @param {string} [opts.root]  folder path within the drive
  */
-export function createOneDriveStorage({ getToken, root = '/FridgeList' }) {
+export function createOneDriveStorage({ getToken, root = '/FridgeList2' }) {
   const itemPath = (path) => `${GRAPH}/me/drive/root:${root}/${path}`;
   let deltaLink = null;
 

@@ -8,7 +8,11 @@
 // Falls back to memory where IndexedDB is unavailable (private windows, tests),
 // because an app that refuses to run is worse than one that forgets.
 
-const DB = 'fridgelist';
+// Every name this app stores under says "fridgelist2". GitHub Pages serves every
+// repository of one account from one origin, so this app and the original
+// FridgeList share localStorage, IndexedDB and the cache list. Names that could
+// collide would let one app read — or wipe — the other's data.
+const DB = 'fridgelist2';
 const STORE = 'events';
 
 export async function openLocal() {
@@ -64,11 +68,11 @@ function memoryFallback() {
 /** Small per-device settings that are not shared: id, nickname, backend choice. */
 export const local = {
   get(key, fallback = null) {
-    try { const v = localStorage.getItem(`fridgelist.${key}`); return v === null ? fallback : JSON.parse(v); }
+    try { const v = localStorage.getItem(`fridgelist2.${key}`); return v === null ? fallback : JSON.parse(v); }
     catch { return fallback; }
   },
   set(key, value) {
-    try { localStorage.setItem(`fridgelist.${key}`, JSON.stringify(value)); } catch { /* private window */ }
+    try { localStorage.setItem(`fridgelist2.${key}`, JSON.stringify(value)); } catch { /* private window */ }
   },
 };
 

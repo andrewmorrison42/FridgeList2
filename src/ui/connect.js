@@ -58,7 +58,7 @@ export function connectView(app, { onAction }) {
           h('label', { class: 'field' },
             h('span', {}, 'Folder'),
             h('input', {
-              type: 'text', value: cfg.folder, placeholder: '/FridgeList', dataset: { key: 'folder' },
+              type: 'text', value: cfg.folder, placeholder: '/FridgeList2', dataset: { key: 'folder' },
               autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false',
               onInput: (e) => onAction('folder', e.target.value.trim()),
             }),

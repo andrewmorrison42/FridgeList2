@@ -11,7 +11,7 @@
 
 const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
 const SCOPES = 'Files.ReadWrite offline_access User.Read';
-const KEY = 'fridgelist.auth';
+const KEY = 'fridgelist2.auth';   // one origin, two apps: see persist.js
 
 const load = () => { try { return JSON.parse(sessionStorage.getItem(KEY) ?? localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
 const save = (t) => { try { localStorage.setItem(KEY, JSON.stringify(t)); } catch { /* private window */ } };
@@ -49,7 +49,7 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
     /** Send the browser to Microsoft. Returns to `redirectUri` with a code. */
     async signIn() {
       const verifier = randomVerifier();
-      sessionStorage.setItem('fridgelist.pkce', verifier);
+      sessionStorage.setItem('fridgelist2.pkce', verifier);
       const params = new URLSearchParams({
         client_id: clientId, response_type: 'code', redirect_uri: redirectUri,
         scope: SCOPES, code_challenge: await challengeFor(verifier), code_challenge_method: 'S256',
@@ -67,10 +67,10 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
       const error = url.searchParams.get('error_description') ?? url.searchParams.get('error');
       if (error) { history.replaceState({}, '', redirectUri); throw new Error(error); }
       if (!code) return false;
-      const verifier = sessionStorage.getItem('fridgelist.pkce');
+      const verifier = sessionStorage.getItem('fridgelist2.pkce');
       history.replaceState({}, '', redirectUri);        // keep the code out of history
       if (!verifier) throw new Error('sign-in could not be completed on this device');
-      sessionStorage.removeItem('fridgelist.pkce');
+      sessionStorage.removeItem('fridgelist2.pkce');
       await exchange({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier });
       return true;
     },

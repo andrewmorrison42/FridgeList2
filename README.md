@@ -97,11 +97,15 @@ URI on the same app registration.
 ## Importing the household's data
 
 ```sh
-node tools/import.js data/recipes-data.reviewed.json path/to/trip-history.json
+node tools/import.js data/recipes-data.reviewed.json
 ```
 
 Writes `data/library.json` and `data/import-report.md`. The report lists what
 needed a human rather than guessing.
+
+`data/library.json` is public — it ships with the app as the seed library — so
+it holds recipes and ingredients only. Trip history is never written to the
+repository.
 
 ## Layout
 

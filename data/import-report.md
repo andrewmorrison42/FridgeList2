@@ -1,6 +1,6 @@
 # Import report
 
-Generated 2026-09-13T11:26:26.284Z
+Generated 2026-09-25T22:04:25.819Z
 
 ## Counts
 
@@ -8,7 +8,6 @@ Generated 2026-09-13T11:26:26.284Z
 - recipes: 638
 - recipeLines: 5561
 - conversionPairs: 377
-- trips: 5
 - staples: 10
 
 ## Resolved automatically

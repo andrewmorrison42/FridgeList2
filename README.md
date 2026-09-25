@@ -135,7 +135,11 @@ tools/       one-off migration
 test/        properties, domain examples, integration, storage contract
 ```
 
-Two rules worth keeping as it grows:
+Three rules worth keeping as it grows:
+
+- **Bump `src/version.js` (and `package.json`) with every change that ships.**
+  Setup shows it under the title, so anyone can see at a glance which version
+  a phone is running.
 
 - **Every merge decision lives in `src/core/merge.js`.** A resolution made
   anywhere else is a decision no property test is watching.

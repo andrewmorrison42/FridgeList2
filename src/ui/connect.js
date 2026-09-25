@@ -14,6 +14,7 @@ export function connectView(app, { onAction }) {
 
   return h('section', {},
     h('h1', {}, 'Settings'),
+    versionLine(app),
 
     h('h2', {}, 'This device'),
     h('label', { class: 'field' },
@@ -128,4 +129,16 @@ function recipesSection(app, { onAction }) {
     rs.mode === 'file' && h('div', { class: 'actions' },
       h('button', { onClick: () => onAction('recipesCheck') }, 'Check for changes now')),
   );
+}
+
+/**
+ * Which version is running, first thing on the screen, so a glance tells
+ * whether this device has the latest. It comes from src/version.js, loaded
+ * with the rest of the code, so it is the version actually running.
+ */
+function versionLine(app) {
+  const released = app.released
+    ? new Date(`${app.released}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  return h('p', { class: 'version' }, `Version ${app.version}`, released && ` · ${released}`);
 }

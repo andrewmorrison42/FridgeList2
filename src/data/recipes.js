@@ -39,7 +39,9 @@ export function createRecipeSource({ file, path, cache, fetchSeed, now = () => D
   let state = 'loading';       // loading | ok | missing | error
   let error = null;
   let checkedAt = 0;
-  let memo = { from: null, library: null };
+  // `undefined`, not null: before the first read there is no source (null),
+  // and the library must then be built — empty — rather than taken from here.
+  let memo = { from: undefined, library: null };
 
   const notify = () => { for (const fn of listeners) fn(); };
 

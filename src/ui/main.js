@@ -16,6 +16,30 @@ const TABS = [
   ['settings', 'Setup', connectView],
 ];
 
+/**
+ * What the screen shows if it cannot draw. The message is the real one, so it
+ * can be passed on; the buttons are the ways out that need no working screen.
+ */
+export function failure(err, app = null) {
+  return h('main', { class: 'failure' },
+    h('h1', {}, 'Something went wrong'),
+    h('p', {}, 'The app hit an error drawing this screen. Nothing you have entered has been lost.'),
+    h('pre', {}, String(err?.stack ?? err?.message ?? err).split('\n').slice(0, 4).join('\n')),
+    app && h('p', { class: 'hint' }, `Version ${app.version}`),
+    h('div', { class: 'actions' },
+      h('button', { class: 'primary', onClick: () => location.reload() }, 'Reload'),
+      h('button', {
+        onClick: () => {
+          // Back to working on this device alone; sign in again from Setup.
+          try { localStorage.removeItem('fridgelist.auth'); localStorage.setItem('fridgelist.storageMode', '"local"'); } catch { /* ignore */ }
+          location.replace(location.pathname + '#settings');
+          location.reload();
+        },
+      }, 'Disconnect OneDrive'),
+    ),
+  );
+}
+
 export async function mount(root, { storage } = {}) {
   const app = await createApp({ storage });
   app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false };
@@ -125,7 +149,13 @@ export async function mount(root, { storage } = {}) {
   function render() {
     const scroll = app.ui.scrollTo ?? window.scrollY;
     app.ui.scrollTo = null;
-    draw();
+    try {
+      draw();
+    } catch (err) {
+      // Never a blank screen: say what broke, and leave a way out.
+      console.error(err);
+      clear(root).append(failure(err, app));
+    }
     window.scrollTo(0, scroll);
     if (app.ui.focus) {
       root.querySelector(app.ui.focus)?.focus();

@@ -35,6 +35,18 @@ describe('recipe file', () => {
     expect(src.library.recipes.get('mushroom-risotto').name).toBe('Mushroom Risotto');
   });
 
+  it('before the first read, the library is empty rather than missing', async () => {
+    // A phone connecting for the first time has no saved copy yet. Every
+    // screen draws from the library, so "none yet" must still be a library.
+    const file = createMemoryFiles({ [PATH]: seedText });
+    const src = createRecipeSource({ file, path: PATH, cache: memCache(), fetchSeed: async () => seedText });
+    await src.init();
+    expect(src.library.recipes.size).toBe(0);
+    expect(src.library.ingredients.size).toBe(0);
+    await src.refresh({ force: true });
+    expect(src.library.recipes.size).toBe(638);
+  });
+
   it('keeps an edit the other app made to a different recipe while the editor was open', async () => {
     const { file, src } = await setup();
     const draft = recipeToDraft(src.raw, 'mushroom-risotto');

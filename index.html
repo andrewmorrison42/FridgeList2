@@ -11,15 +11,13 @@
 <body>
 <div id="app"></div>
 <script type="module">
-  import { mount, loadLibraryInto } from './src/ui/main.js';
+  import { mount } from './src/ui/main.js';
 
   // No storage passed: the app chooses its own backend from this device's
   // settings (OneDrive once connected, otherwise local only). Nothing above
   // src/data/ knows which one it got.
   const app = await mount(document.getElementById('app'));
   window.app = app;
-
-  if (app.library.recipes.size === 0) await loadLibraryInto(app);
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

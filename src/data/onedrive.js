@@ -9,6 +9,7 @@
 // is public by design.
 
 import { NOT_MODIFIED } from './storage.js';
+import { CONFLICT } from './recipes.js';
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
@@ -82,6 +83,54 @@ export function createOneDriveStorage({ getToken, root = '/FridgeList' }) {
         .filter((i) => i.file)
         .map((i) => i.name);
       return { changes, cursor: deltaLink };
+    },
+  };
+}
+
+/**
+ * A single file anywhere in the drive, by path, with eTag guards — the recipe
+ * file (src/data/recipes.js). Unlike the per-device logs above, this file is
+ * shared with the earlier version of the app, so every write is conditional.
+ * Same contract as createMemoryFiles in recipes.js.
+ */
+export function createOneDriveFiles({ getToken }) {
+  const itemUrl = (path) => `${GRAPH}/me/drive/root:${path.split('/').map(encodeURIComponent).join('/')}`;
+
+  async function call(url, init = {}) {
+    const token = await getToken();
+    return fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
+  }
+  const fail = async (what, res) => new Error(`OneDrive ${what} ${res.status}: ${await res.text().catch(() => '')}`);
+
+  return {
+    async stat(path) {
+      const res = await call(`${itemUrl(path)}?$select=eTag`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw await fail('check', res);
+      return { etag: (await res.json()).eTag };
+    },
+
+    async read(path) {
+      // The item's metadata carries its eTag and a short-lived download link.
+      // Reading both from one response ties the content to the eTag that
+      // If-Match will later be checked against.
+      const res = await call(itemUrl(path));
+      if (res.status === 404) return null;
+      if (!res.ok) throw await fail('read', res);
+      const meta = await res.json();
+      const dl = await fetch(meta['@microsoft.graph.downloadUrl']);
+      if (!dl.ok) throw await fail('download', dl);
+      return { content: await dl.text(), etag: meta.eTag };
+    },
+
+    async put(path, content, { ifMatch, ifNoneMatch } = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (ifMatch) headers['If-Match'] = ifMatch;
+      if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
+      const res = await call(`${itemUrl(path)}:/content`, { method: 'PUT', headers, body: content });
+      if (res.status === 412 || res.status === 409) return CONFLICT;
+      if (!res.ok) throw await fail('save', res);
+      return { etag: (await res.json()).eTag };
     },
   };
 }

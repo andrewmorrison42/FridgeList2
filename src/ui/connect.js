@@ -6,6 +6,7 @@
 // how this phone reaches it. §3.3, §5.2.
 
 import { h } from './dom.js';
+import { recipesPath } from './app.js';
 
 export function connectView(app, { onAction }) {
   const cfg = app.config;
@@ -67,11 +68,9 @@ export function connectView(app, { onAction }) {
           cfg.authError && h('p', { class: 'warn-text' }, cfg.authError),
         ),
 
-    h('h2', {}, 'Library'),
-    h('p', { class: 'hint' },
-      `${app.library.recipes.size} recipes, ${app.library.ingredients.size} ingredients.`),
+    h('h2', {}, 'Recipes'),
+    recipesSection(app, { onAction }),
     h('div', { class: 'actions' },
-      h('button', { onClick: () => onAction('reloadLibrary') }, 'Reload from data/library.json'),
       h('button', { onClick: () => window.print() }, 'Print the list'),
     ),
 
@@ -80,5 +79,48 @@ export function connectView(app, { onAction }) {
       'Your data lives on this device and in your OneDrive folder. It never passes ',
       'through the site that serves this app. Every device holds the whole history, ',
       'so if OneDrive ever went away nothing would be lost.'),
+  );
+}
+
+/**
+ * Which recipe file this device uses. Per device, like the folder: each app can
+ * point at the file it wants, and pointing this one at the earlier app's
+ * recipes-data.json is what lets the two share one recipe book.
+ */
+function recipesSection(app, { onAction }) {
+  const rs = app.recipes.status();
+  const ago = rs.checkedAt ? `checked ${Math.round((Date.now() - rs.checkedAt) / 1000)}s ago` : 'not checked yet';
+
+  return h('div', {},
+    rs.mode === 'local'
+      ? h('p', { class: 'hint' },
+          `${rs.recipes} recipes, kept on this device only, started from the app's starter recipes. `,
+          'Once connected to OneDrive, the recipes come from the file below instead.')
+      : rs.state === 'ok' ? h('p', { class: 'ok' }, `${rs.recipes} recipes from ${rs.path} · ${ago}`)
+      : rs.state === 'loading' ? h('p', { class: 'hint' }, `Checking ${rs.path}…`)
+      : rs.state === 'missing' ? h('div', {},
+          h('p', { class: 'warn-text' }, `There is no file at ${rs.path}.`),
+          h('p', { class: 'hint' }, 'Check the path below, or start a new recipe book there from the starter recipes. ',
+            'Starting one never replaces a file that is already there.'),
+          h('div', { class: 'actions' },
+            h('button', { onClick: () => onAction('recipesCreate') }, 'Start it from the starter recipes')),
+        )
+      : h('p', { class: 'warn-text' },
+          `Couldn't read ${rs.path}: ${rs.error}. Showing the copy saved on this device (${rs.recipes} recipes).`),
+    app.ui.recipesError && h('p', { class: 'warn-text' }, app.ui.recipesError),
+
+    h('label', { class: 'field' },
+      h('span', {}, 'Recipe file'),
+      h('input', {
+        type: 'text', value: app.config.recipesFile ?? '',
+        placeholder: recipesPath({ ...app.config, recipesFile: '' }),
+        onChange: (e) => onAction('recipesFile', e.target.value.trim()),
+      }),
+    ),
+    h('p', { class: 'hint' },
+      'A path in the OneDrive, e.g. /FridgeList/recipes-data.json — the file the earlier ',
+      'Fridge List app uses, so both share one recipe book. Leave empty for recipes-data.json in the folder above.'),
+    rs.mode === 'file' && h('div', { class: 'actions' },
+      h('button', { onClick: () => onAction('recipesCheck') }, 'Check for changes now')),
   );
 }

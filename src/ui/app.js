@@ -8,16 +8,26 @@
 
 import { createStore } from '../core/store.js';
 import { currentShop, nextShopId, permissions, explainRefusal } from '../core/shop.js';
-import { library, cookHistory } from '../core/library.js';
+import { cookHistory } from '../core/library.js';
 import { selections, carryOverTransitions } from '../core/carryover.js';
 import { generate } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { createMemoryStorage } from '../data/storage.js';
-import { createOneDriveStorage } from '../data/onedrive.js';
+import { createOneDriveStorage, createOneDriveFiles } from '../data/onedrive.js';
 import { createAuth } from '../data/auth.js';
 import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
 import { openLocal, deviceIdentity, local } from '../data/persist.js';
+import { createRecipeSource } from '../data/recipes.js';
+
+const SEED = 'data/recipes-data.reviewed.json';
+
+/** The recipe file this device uses: as set in Setup, or recipes-data.json in the folder. */
+export function recipesPath(config) {
+  const set = (config.recipesFile ?? '').trim();
+  if (set) return set.startsWith('/') ? set : `/${set}`;
+  return `${config.folder.replace(/\/+$/, '')}/recipes-data.json`;
+}
 
 /** Per-device configuration. Never shared — it only decides how this phone reaches the folder. */
 export function readConfig() {
@@ -25,6 +35,7 @@ export function readConfig() {
     clientId: local.get('clientId', ''),
     folder: local.get('folder', '/FridgeList'),
     storageMode: local.get('storageMode', 'local'),
+    recipesFile: local.get('recipesFile', ''),
     authError: null,
   };
 }
@@ -55,6 +66,21 @@ export async function createApp({ storage } = {}) {
   const device = createDevice(identity.id);
   device.observe(store.events);
 
+  // Recipes come from a file, not the event log (§12): the household's own
+  // recipes-data.json when connected, shared with the earlier app; otherwise a
+  // copy on this device started from the seed.
+  const recipes = createRecipeSource({
+    file: auth?.connected ? createOneDriveFiles({ getToken: () => auth.getToken() }) : null,
+    path: recipesPath(config),
+    cache: persisted.files,
+    fetchSeed: async () => {
+      const res = await fetch(SEED);
+      if (!res.ok) throw new Error(`${SEED}: ${res.status}`);
+      return res.text();
+    },
+  });
+  await recipes.init();
+
   const sync = createSync({ storage, store, deviceId: identity.id });
   const presence = createPresence({ storage, deviceId: identity.id, nickname: identity.nickname });
 
@@ -72,11 +98,11 @@ export async function createApp({ storage } = {}) {
   };
 
   const app = {
-    identity, store, sync, presence, storage, config, auth,
+    identity, store, sync, presence, storage, config, auth, recipes,
 
     get shop() { return currentShop(store.events); },
     get can() { return permissions(store.events); },
-    get library() { return library(store.events); },
+    get library() { return recipes.library; },
     get selections() { return selections(store.events); },
     get history() { return cookHistory(store.events); },
     get roster() { return roster; },
@@ -217,8 +243,8 @@ export async function createApp({ storage } = {}) {
       roster = await presence.roster(id);
     },
 
-    async refresh() {
-      await sync.tick();
+    async refresh({ force = false } = {}) {
+      await Promise.all([sync.tick(), recipes.refresh({ force })]);
       const { id, phase } = currentShop(store.events);
       if (phase === 'open') {
         if (presence.joined) await presence.beat(id, { syncStatus: sync.status() });
@@ -262,16 +288,13 @@ export async function createApp({ storage } = {}) {
       config.storageMode = 'local';
     },
 
-    /** Load a library snapshot (the import's output) into this device. §12. */
-    async loadLibrary(json) {
-      const events = [];
-      for (const ing of json.ingredients ?? []) {
-        events.push(device.emit('ingredient.upsert', { ingredientId: ing.id, ingredient: ing }, 'draft'));
+    /** Save a recipe from the editor to the recipe file. */
+    async saveRecipe(draft) {
+      try {
+        return await recipes.save(draft);
+      } catch (err) {
+        return { error: `Could not save: ${err.message}. Your changes are still here — try again when you have signal.` };
       }
-      for (const r of json.recipes ?? []) {
-        events.push(device.emit('recipe.upsert', { recipeId: r.id, recipe: r }, 'draft'));
-      }
-      return record(events);
     },
   };
 

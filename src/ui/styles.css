@@ -156,3 +156,25 @@ nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 
   border: 1px solid var(--line); border-radius: 10px;
 }
 .ok { color: var(--accent); font-weight: 600; }
+
+/* --- recipe editor ------------------------------------------------------ */
+
+.title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.editor .field input[type="number"], .editor textarea, .ing-row input, .ing-row select {
+  font: inherit; background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 10px; min-height: var(--tap); padding: 0 10px;
+}
+.editor .field input[type="number"] { width: 8em; }
+.editor textarea { width: 100%; padding: 8px 10px; line-height: 1.4; }
+/* On a phone: the ingredient on its own line, then amount, unit and how
+   it is used together underneath. On a tablet it all fits on one. */
+.ing-rows { margin: 4px 0 8px; }
+.ing-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+           padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ing-row .ing-name { flex: 1 1 100%; min-width: 0; }
+@media (min-width: 700px) { .ing-row .ing-name { flex-basis: 14em; } }
+.ing-row .ing-qty { flex: 0 0 5.5em; width: 5.5em; }
+.ing-row .unit, .ing-row select { flex: 0 0 5.5em; width: 5.5em; }
+.ing-row .unit-fixed { flex: 0 0 5.5em; color: var(--muted); font-size: .88rem; padding-left: 4px; }
+.ing-row .ing-desc { flex: 1 1 6em; min-width: 0; }
+.ing-row .ghost { flex: none; }

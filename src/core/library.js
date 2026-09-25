@@ -1,27 +1,9 @@
-// The recipe and ingredient library, derived from events. §9.
+// The recipe and ingredient library. §9, §12.
 //
-// Recipes are edited rarely, by whoever is cooking, so these are last-save-wins
-// registers rather than causally merged ones (§5.5). The library is large — 638
-// recipes and 452 ingredients for this household — which is why it lives in its
-// own files and is fetched conditionally rather than polled (§7.2).
-
-import { merge } from './merge.js';
-
-/** @returns {{ recipes: Map, ingredients: Map }} */
-export function library(events) {
-  const state = merge(events);
-  const recipes = new Map();
-  const ingredients = new Map();
-
-  for (const [key, reg] of state) {
-    if (reg.value === undefined || reg.value === null) continue;
-    const r = /^recipe:(.+)$/.exec(key);
-    if (r) { recipes.set(r[1], reg.value); continue; }
-    const i = /^ingredient:(.+)$/.exec(key);
-    if (i) ingredients.set(i[1], reg.value);
-  }
-  return { recipes, ingredients };
-}
+// The library itself is built from the household's recipe file by
+// core/recipes-format.js, and held by data/recipes.js — not derived from
+// events. What stays here is what is derived from the event log about it:
+// staples and cook history.
 
 /** Staples are a property of the ingredient, never conflated with the rest. FR-STA-2. */
 export const staples = (ingredients) => [...ingredients.values()].filter((i) => i.isStaple);

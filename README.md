@@ -87,25 +87,43 @@ which is why the app uses the authorisation code flow with PKCE (`src/data/auth.
    Microsoft account — the same account on every device
 5. Give the device a **Name** ("Dad's phone") so the list can say who ticked what
 
-The first device to connect creates the folder and uploads the library; the
-rest pick it up on their next sync. Data appears in OneDrive under `FridgeList`
+The first device to connect creates the app's own files in the folder; the
+rest pick them up on their next sync. Recipes come from `recipes-data.json` in
+the same folder (see Recipes below). Data appears in OneDrive under `FridgeList`
 as plain JSON you can read, copy or back up by hand.
 
 For local testing, register `http://localhost:8099/` as a second SPA redirect
 URI on the same app registration.
 
-## Importing the household's data
+## Recipes
+
+The app reads its recipes from a JSON file in the household's OneDrive — by
+default `recipes-data.json` in the folder set in Setup, which is the file the
+earlier Fridge List app uses, so both share one recipe book. Set **Setup →
+Recipe file** to point a device at a different file. If there is no file at
+that path, Setup offers to start one from the starter recipes; it never
+replaces a file that is already there.
+
+Recipes are edited in the app (**Recipes → Edit**, or **+ New recipe**). A
+save changes only that one recipe, keeps every field the earlier app uses, and
+writes only if the file has not changed since it was read — so an edit made
+elsewhere to another recipe is kept, and one made to the same recipe is
+flagged rather than overwritten. **While both apps are in use, edit recipes in
+only one of them at a time:** the earlier app can still overwrite a recent edit
+made here.
+
+A device not connected to OneDrive keeps its own copy, started from the starter
+recipes in `data/recipes-data.reviewed.json`. That file is public, so it holds
+recipes and ingredients only — no trip history or cook dates.
+
+To check a recipe file the way the app reads it:
 
 ```sh
-node tools/import.js data/recipes-data.reviewed.json
+node tools/import.js path/to/recipes-data.json
 ```
 
-Writes `data/library.json` and `data/import-report.md`. The report lists what
-needed a human rather than guessing.
-
-`data/library.json` is public — it ships with the app as the seed library — so
-it holds recipes and ingredients only. Trip history is never written to the
-repository.
+This writes `data/import-report.md`, listing what needed a human rather than
+guessing.
 
 ## Layout
 

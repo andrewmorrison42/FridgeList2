@@ -13,7 +13,10 @@ thing, or guess at intent. Nothing in the second list has been touched.
 ## Verification of the output
 
 The corrected file was checked against the original and is identical except
-for the 19 changes listed below:
+for the 19 changes listed below, and one later removal: the per-recipe
+`lastCooked` and `lastPlanned` dates (88 recipes) were stripped on 2026-09-25,
+because this file is public and those dates are household history. The
+household's own `recipes-data.json` in OneDrive still has them.
 
 - 638 recipes and 452 ingredients — unchanged counts
 - every ingredient **name** identical (recipes reference ingredients by name,

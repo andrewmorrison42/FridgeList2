@@ -277,7 +277,7 @@ export async function createApp({ storage } = {}) {
 
     /** Send this device to Microsoft to sign in. Returns here afterwards. */
     async connect() {
-      if (!config.clientId) throw new Error('an application (client) id is needed first');
+      if (!config.clientId) throw new Error('Paste the Application (client) ID first.');
       local.set('storageMode', 'onedrive');
       await createAuth({ clientId: config.clientId }).signIn();
     },

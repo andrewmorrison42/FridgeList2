@@ -6,7 +6,7 @@ import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
 import { connectView } from './connect.js';
-import { recipeToDraft, blankRow, unitChoices, rebaseDraft } from '../core/recipes-format.js';
+import { recipeToDraft, blankRow, rebaseDraft } from '../core/recipes-format.js';
 
 const TABS = [
   ['list', 'List', listView],
@@ -27,13 +27,16 @@ export async function mount(root, { storage } = {}) {
         // the confirmation shadows every screen and the only way out is to
         // answer it, which is not what tapping "Recipes" means.
         app.ui.confirmingClose = false;
+        if (app.ui.tab !== args[0]) app.ui.scrollTo = 0;
         app.ui.tab = args[0];
         location.hash = args[0];
         break;
-      case 'search':     app.ui.search = args[0]; break;
-      case 'waitSearch': app.ui.waitSearch = args[0]; break;
-      case 'recipeSearch': app.ui.recipeSearch = args[0]; break;
-      case 'openRecipe': app.ui.openRecipe = args[0]; break;
+      case 'openRecipe':
+        // Into a recipe: its top. Back out: where the list was left.
+        if (args[0]) { app.ui.listScroll = window.scrollY; app.ui.scrollTo = 0; }
+        else app.ui.scrollTo = app.ui.listScroll ?? 0;
+        app.ui.openRecipe = args[0];
+        break;
       case 'plan':       app.planRecipe(args[0], args[1]); break;
       case 'unplan':     app.unplanRecipe(args[0]); break;
       case 'cooked':     app.markCooked(args[0]); break;
@@ -56,9 +59,6 @@ export async function mount(root, { storage } = {}) {
         await app.closeShop();
         break;
       case 'cancelClose': app.ui.confirmingClose = false; break;
-      case 'nickname':   app.setNickname(args[0]); break;
-      case 'clientId':   app.setConfig('clientId', args[0]); break;
-      case 'folder':     app.setConfig('folder', args[0]); break;
       case 'signIn':
         try { await app.connect(); }
         catch (err) { app.config.authError = err.message; }
@@ -67,7 +67,7 @@ export async function mount(root, { storage } = {}) {
       case 'syncNow':    await app.refresh({ force: true }); break;
       case 'recipesFile':
         // A different file is a different recipe book: start again on it.
-        app.setConfig('recipesFile', args[0]);
+        app.setConfig('recipesFile', (app.ui.recipesFile ?? app.config.recipesFile ?? '').trim());
         location.reload();
         return;
       case 'recipesCheck':  await app.recipes.refresh({ force: true }); break;
@@ -77,19 +77,18 @@ export async function mount(root, { storage } = {}) {
         break;
 
       // -- the recipe editor (editor.js) --
-      case 'editRecipe':  app.ui.draft = recipeToDraft(app.recipes.raw, args[0]); window.scrollTo(0, 0); break;
-      case 'newRecipe':   app.ui.draft = recipeToDraft(app.recipes.raw, null); app.ui.draft.rows.push(blankRow(app.ui.draft)); break;
-      case 'draftCancel': app.ui.draft = null; break;
-      case 'draftAddRow': app.ui.draft.rows.push(blankRow(app.ui.draft)); break;
-      case 'draftRemoveRow': app.ui.draft.rows.splice(args[0], 1); break;
-      case 'draftRowName': {
-        // Settle the unit to one this ingredient allows.
-        const row = app.ui.draft.rows[args[0]];
-        const choice = unitChoices(app.recipes.raw, row.name);
-        if (choice.kind === 'choose' && !choice.options.includes(row.unit)) row.unit = choice.options[0];
-        if (choice.kind === 'fixed') row.unit = choice.unit;
+      case 'editRecipe':  app.ui.draft = recipeToDraft(app.recipes.raw, args[0]); app.ui.scrollTo = 0; break;
+      case 'newRecipe':
+        app.ui.draft = recipeToDraft(app.recipes.raw, null);
+        app.ui.draft.rows.push(blankRow(app.ui.draft));
+        app.ui.scrollTo = 0; app.ui.focus = '.editor .field input';
         break;
-      }
+      case 'draftCancel': app.ui.draft = null; app.ui.scrollTo = 0; break;
+      case 'draftAddRow':
+        app.ui.draft.rows.push(blankRow(app.ui.draft));
+        app.ui.focus = '.ing-row:last-of-type .ing-name';   // ready to type into
+        break;
+      case 'draftRemoveRow': app.ui.draft.rows.splice(args[0], 1); break;
       case 'draftReopen': app.ui.draft = recipeToDraft(app.recipes.raw, app.ui.draft.id); break;
       case 'draftOverride':
         app.ui.draft = rebaseDraft(app.ui.draft, app.recipes.raw);
@@ -103,14 +102,38 @@ export async function mount(root, { storage } = {}) {
         if (out.conflict) d.conflict = true;
         else if (out.error) d.error = out.error;
         else { app.ui.draft = null; app.ui.openRecipe = out.recipeId; }
-        window.scrollTo(0, 0);
+        app.ui.scrollTo = 0;
         break;
       }
     }
     render();
   };
 
+  // Every render rebuilds the screen. So nothing may render while someone is
+  // typing: a rebuilt box loses the half-built word a phone keyboard is
+  // composing. Searches therefore redraw only their results (views.js), the
+  // editor writes into its draft without rendering, and background redraws
+  // wait (below). Scroll stays where it was, unless the render is a move to
+  // a different screen, which starts at the top — or back where the person
+  // left the list.
+  const FIELDS = 'input:not([type=checkbox]), textarea, select';
+  const typingIn = () => {
+    const a = document.activeElement;
+    return a && root.contains(a) && a.matches(FIELDS) ? a : null;
+  };
+
   function render() {
+    const scroll = app.ui.scrollTo ?? window.scrollY;
+    app.ui.scrollTo = null;
+    draw();
+    window.scrollTo(0, scroll);
+    if (app.ui.focus) {
+      root.querySelector(app.ui.focus)?.focus();
+      app.ui.focus = null;
+    }
+  }
+
+  function draw() {
     const view = TABS.find(([id]) => id === app.ui.tab)?.[2] ?? listView;
     clear(root).append(
       statusBar(app, { onAction }),
@@ -131,10 +154,38 @@ export async function mount(root, { storage } = {}) {
   // shows stale data is, to the person holding it, one that never received the
   // change. FR-SYNC-7.
   //
-  // The one exception is the recipe editor on screen: re-rendering would take the
-  // cursor from someone typing. The editor shows no shared state, and the rest
-  // catches up the moment it closes.
-  const background = () => { if (!(app.ui.draft && app.ui.tab === 'recipes')) render(); };
+  // The exception is someone in the middle of something. A background redraw
+  // waits while:
+  //  - a box has focus: it would take the box, and the keyboard, from under them;
+  //  - the recipe editor is open: it holds no shared state to go stale;
+  //  - a finger is down, or the page is still scrolling: a redraw that moves
+  //    the list under a tap puts the tick on the wrong line, and one during a
+  //    fling stops it dead.
+  // It happens as soon as they stop, so nothing is held back for long.
+  let owed = false;
+  let busyUntil = 0;
+  let fingers = 0;
+  let downAt = 0;
+  const QUIET_MS = 450;
+  // A lost pointerup must not hold redraws back for ever: a finger "down" for
+  // more than a few seconds is treated as lifted.
+  const busy = () => (fingers > 0 && Date.now() - downAt < 5000) || Date.now() < busyUntil;
+  const background = () => {
+    if ((app.ui.draft && app.ui.tab === 'recipes') || typingIn() || busy()) { owed = true; return; }
+    owed = false;
+    render();
+  };
+  const settle = () => { if (owed) setTimeout(background, 0); };
+  const quiet = () => { busyUntil = Date.now() + QUIET_MS; setTimeout(settle, QUIET_MS + 10); };
+  root.addEventListener('focusout', (e) => {
+    // Moving from one field to the next is still typing.
+    if (!(e.relatedTarget && root.contains(e.relatedTarget) && e.relatedTarget.matches(FIELDS))) settle();
+  });
+  window.addEventListener('pointerdown', () => { fingers++; downAt = Date.now(); setTimeout(settle, 5010); }, { passive: true });
+  const lift = () => { fingers = Math.max(0, fingers - 1); quiet(); };
+  window.addEventListener('pointerup', lift, { passive: true });
+  window.addEventListener('pointercancel', lift, { passive: true });
+  window.addEventListener('scroll', quiet, { passive: true });
   app.store.subscribe(background);
   app.recipes.subscribe(background);
   app.start(background);

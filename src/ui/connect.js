@@ -19,8 +19,11 @@ export function connectView(app, { onAction }) {
     h('label', { class: 'field' },
       h('span', {}, 'Name'),
       h('input', {
-        type: 'text', value: app.identity.nickname, placeholder: 'Dad’s phone',
-        onChange: (e) => onAction('nickname', e.target.value),
+        // Unnamed, the device goes by its random id; that is not something
+        // to type after, so the box starts empty.
+        type: 'text', value: app.identity.nickname === app.identity.id ? '' : app.identity.nickname,
+        placeholder: 'Dad’s phone', autocomplete: 'off',
+        onInput: (e) => app.setNickname(e.target.value.trim() || app.identity.id),
       }),
     ),
     h('p', { class: 'hint' },
@@ -46,7 +49,8 @@ export function connectView(app, { onAction }) {
             h('span', {}, 'Application (client) ID'),
             h('input', {
               type: 'text', value: cfg.clientId ?? '', placeholder: '00000000-0000-0000-0000-000000000000',
-              onChange: (e) => onAction('clientId', e.target.value.trim()),
+              autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+              onInput: (e) => app.setConfig('clientId', e.target.value.trim()),
             }),
           ),
           h('p', { class: 'hint' },
@@ -56,14 +60,12 @@ export function connectView(app, { onAction }) {
             h('span', {}, 'Folder'),
             h('input', {
               type: 'text', value: cfg.folder, placeholder: '/FridgeList',
-              onChange: (e) => onAction('folder', e.target.value.trim()),
+              autocomplete: 'off', autocapitalize: 'off',
+              onInput: (e) => app.setConfig('folder', e.target.value.trim()),
             }),
           ),
           h('div', { class: 'actions' },
-            h('button', {
-              class: 'primary', disabled: !cfg.clientId,
-              onClick: () => onAction('signIn'),
-            }, 'Connect to OneDrive'),
+            h('button', { class: 'primary', onClick: () => onAction('signIn') }, 'Connect to OneDrive'),
           ),
           cfg.authError && h('p', { class: 'warn-text' }, cfg.authError),
         ),
@@ -112,11 +114,14 @@ function recipesSection(app, { onAction }) {
     h('label', { class: 'field' },
       h('span', {}, 'Recipe file'),
       h('input', {
-        type: 'text', value: app.config.recipesFile ?? '',
+        type: 'text', value: app.ui.recipesFile ?? app.config.recipesFile ?? '',
         placeholder: recipesPath({ ...app.config, recipesFile: '' }),
-        onChange: (e) => onAction('recipesFile', e.target.value.trim()),
+        autocomplete: 'off', autocapitalize: 'off',
+        onInput: (e) => { app.ui.recipesFile = e.target.value; },
       }),
     ),
+    h('div', { class: 'actions' },
+      h('button', { onClick: () => onAction('recipesFile') }, 'Use this recipe file')),
     h('p', { class: 'hint' },
       'A path in the OneDrive, e.g. /FridgeList/recipes-data.json — the file the earlier ',
       'Fridge List app uses, so both share one recipe book. Leave empty for recipes-data.json in the folder above.'),

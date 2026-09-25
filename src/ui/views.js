@@ -12,6 +12,31 @@ import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
 import { editorView } from './editor.js';
 
+/**
+ * A search box whose results redraw beneath it. The box itself is never
+ * rebuilt while someone types in it: phone keyboards build each word in
+ * stages (composition), and a replaced box loses the word half-built — the
+ * letters vanish, or come back doubled.
+ */
+function searchWithResults({ value, placeholder, onSearch, results }) {
+  let list = h('div', {}, results(value));
+  const box = h('input', {
+    type: 'search', placeholder, value,
+    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false',
+    onInput: (e) => {
+      onSearch(e.target.value);
+      const next = h('div', {}, results(e.target.value));
+      list.replaceWith(next);
+      list = next;
+    },
+  });
+  return [box, list];
+}
+
+/** Say so when a list is cut short, so a missing recipe reads as "search for it". */
+const moreHint = (shown, total) => shown < total &&
+  h('p', { class: 'hint' }, `Showing ${shown} of ${total}. Search to find the rest.`);
+
 const STATUS_LABEL = { [PLANNED]: 'Planned', [CARRIED]: 'Carried over', [FLAGGED]: 'Needs a decision', [COOKED]: 'Cooked' };
 
 // -- Plan -------------------------------------------------------------------
@@ -25,10 +50,26 @@ export function planView(app, { onAction }) {
   const search = app.ui.search ?? '';
 
   const chosen = [...sels.values()].sort((a, b) => a.recipeId.localeCompare(b.recipeId));
-  const matches = [...recipes.values()]
-    .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 60);
+  const results = (q) => {
+    const all = [...recipes.values()]
+      .filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const matches = all.slice(0, 60);
+    return [
+      h('ul', { class: 'picker' },
+        matches.map((r) => h('li', {},
+          h('div', { class: 'grow' },
+            h('strong', {}, r.name),
+            // The cook-history signal belongs where recipes are chosen, not only
+            // in a separate history view (FR-REC-4).
+            h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
+          ),
+          h('button', { onClick: () => onAction('plan', r.id, r.servings) }, 'Add'),
+        )),
+      ),
+      moreHint(matches.length, all.length),
+    ];
+  };
 
   return h('section', {},
     h('h1', {}, "This week's menu"),
@@ -53,21 +94,10 @@ export function planView(app, { onAction }) {
     ),
 
     h('h2', {}, 'Add a recipe'),
-    h('input', {
-      type: 'search', placeholder: 'Search recipes', value: search,
-      onInput: (e) => onAction('search', e.target.value),
+    searchWithResults({
+      value: search, placeholder: 'Search recipes', results,
+      onSearch: (q) => { app.ui.search = q; },
     }),
-    h('ul', { class: 'picker' },
-      matches.map((r) => h('li', {},
-        h('div', { class: 'grow' },
-          h('strong', {}, r.name),
-          // The cook-history signal belongs where recipes are chosen, not only
-          // in a separate history view (FR-REC-4).
-          h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
-        ),
-        h('button', { onClick: () => onAction('plan', r.id, r.servings) }, 'Add'),
-      )),
-    ),
   );
 }
 
@@ -139,25 +169,27 @@ export function waitListView(app, { onAction }) {
   const { ingredients } = app.library;
   const items = app.waitList();
   const search = app.ui.waitSearch ?? '';
-  const matches = search
-    ? [...ingredients.values()].filter((i) => i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12)
-    : [];
+  const results = (q) => {
+    const matches = q
+      ? [...ingredients.values()].filter((i) => i.name.toLowerCase().includes(q.toLowerCase())).slice(0, 12)
+      : [];
+    return matches.length > 0 && h('ul', { class: 'picker' },
+      matches.map((i) => h('li', {},
+        h('span', { class: 'grow' }, i.name),
+        h('button', { onClick: () => onAction('addWait', i.id) }, 'Add'),
+      )),
+    );
+  };
 
   return h('section', {},
     h('h1', {}, 'Wait list'),
     h('p', { class: 'hint' },
       'Anything running low. It stays here until it is bought or removed — a week ending never clears it.'),
 
-    h('input', {
-      type: 'search', placeholder: 'Add something running low', value: search,
-      onInput: (e) => onAction('waitSearch', e.target.value),
+    searchWithResults({
+      value: search, placeholder: 'Add something running low', results,
+      onSearch: (q) => { app.ui.waitSearch = q; },
     }),
-    matches.length > 0 && h('ul', { class: 'picker' },
-      matches.map((i) => h('li', {},
-        h('span', { class: 'grow' }, i.name),
-        h('button', { onClick: () => onAction('addWait', i.id) }, 'Add'),
-      )),
-    ),
 
     items.length === 0
       ? h('p', { class: 'empty' }, 'Nothing waiting.')
@@ -215,10 +247,19 @@ export function recipesView(app, { onAction }) {
     );
   }
 
-  const matches = [...recipes.values()]
-    .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 80);
+  const results = (q) => {
+    const all = [...recipes.values()]
+      .filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const matches = all.slice(0, 80);
+    return [
+      h('ul', { class: 'picker' }, matches.map((r) => h('li', {},
+        h('button', { class: 'link grow', onClick: () => onAction('openRecipe', r.id) }, r.name),
+        h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
+      ))),
+      moreHint(matches.length, all.length),
+    ];
+  };
 
   return h('section', {},
     h('div', { class: 'title-row' },
@@ -230,13 +271,9 @@ export function recipesView(app, { onAction }) {
       `Showing the copy saved on this device — couldn't check ${rs.path} for changes.`),
     rs.state === 'missing' && h('p', { class: 'warn-text' },
       `There is no recipe file at ${rs.path}. See Setup.`),
-    h('input', {
-      type: 'search', placeholder: `Search ${recipes.size} recipes`, value: search,
-      onInput: (e) => onAction('recipeSearch', e.target.value),
+    searchWithResults({
+      value: search, placeholder: `Search ${recipes.size} recipes`, results,
+      onSearch: (q) => { app.ui.recipeSearch = q; },
     }),
-    h('ul', { class: 'picker' }, matches.map((r) => h('li', {},
-      h('button', { class: 'link grow', onClick: () => onAction('openRecipe', r.id) }, r.name),
-      h('span', { class: 'since' }, sinceLabel(history.get(r.id))),
-    ))),
   );
 }

@@ -11,6 +11,24 @@ import { h } from './dom.js';
 import { unitChoices } from '../core/recipes-format.js';
 
 const unitLabel = (u) => (!u || u === 'qty' ? 'each' : u);
+const unitKey = (raw, row) => JSON.stringify(unitChoices(raw, row.name));
+
+/** The unit box for a row, settling its unit to one the ingredient allows. */
+function unitControl(raw, row) {
+  const choice = unitChoices(raw, row.name);
+  const key = JSON.stringify(choice);
+  if (choice.kind === 'choose') {
+    if (!choice.options.includes(row.unit)) row.unit = choice.options[0];
+    return h('select', { 'aria-label': 'Unit', dataset: { unit: key }, onChange: (e) => { row.unit = e.target.value; } },
+      choice.options.map((u) => h('option', { value: u, selected: u === row.unit }, u)));
+  }
+  if (choice.kind === 'fixed') {
+    row.unit = choice.unit;
+    return h('span', { class: 'unit-fixed', title: 'Set by the ingredient list', dataset: { unit: key } }, unitLabel(choice.unit));
+  }
+  return h('input', { type: 'text', class: 'unit', placeholder: 'unit', value: row.unit, 'aria-label': 'Unit',
+    dataset: { unit: key }, onInput: (e) => { row.unit = e.target.value; } });
+}
 
 export function editorView(app, { onAction }) {
   const d = app.ui.draft;
@@ -47,24 +65,19 @@ export function editorView(app, { onAction }) {
     h('div', { class: 'ing-rows' }, d.rows.map((row, i) => {
       const heading = row.section && row.section !== d.rows[i - 1]?.section
         ? h('h3', {}, row.section) : null;
-      const choice = unitChoices(raw, row.name);
-      const unit = choice.kind === 'choose'
-        ? h('select', {
-            'aria-label': 'Unit',
-            onChange: (e) => { row.unit = e.target.value; },
-          }, choice.options.map((u) => h('option', { value: u, selected: u === row.unit }, u)))
-        : choice.kind === 'fixed'
-          ? h('span', { class: 'unit-fixed', title: 'Set by the ingredient list' }, unitLabel(choice.unit))
-          : h('input', { type: 'text', class: 'unit', placeholder: 'unit', value: row.unit,
-              'aria-label': 'Unit', onInput: (e) => { row.unit = e.target.value; } });
+      const unit = unitControl(raw, row);
 
       return [heading, h('div', { class: 'ing-row' },
         h('input', {
           type: 'text', class: 'ing-name', list: 'ingredient-names', placeholder: 'Ingredient',
           value: row.name, 'aria-label': 'Ingredient',
-          onInput: (e) => { row.name = e.target.value; },
-          // Choosing a name decides which units apply, so the row is redrawn.
-          onChange: () => onAction('draftRowName', i),
+          onInput: (e) => {
+            row.name = e.target.value;
+            // The ingredient decides which units apply. Swap just this row's
+            // unit box: redrawing the form would take the keyboard away.
+            const box = e.target.parentElement.querySelector('[data-unit]');
+            if (box.dataset.unit !== unitKey(raw, row)) box.replaceWith(unitControl(raw, row));
+          },
         }),
         h('input', { type: 'text', class: 'ing-qty', inputmode: 'decimal', placeholder: 'Amount',
           value: row.qty, 'aria-label': 'Amount', onInput: (e) => { row.qty = e.target.value; } }),

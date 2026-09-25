@@ -6,7 +6,7 @@ import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
 import { connectView } from './connect.js';
-import { recipeToDraft, blankRow, unitChoices, rebaseDraft } from '../core/recipes-format.js';
+import { recipeToDraft, blankRow, rebaseDraft } from '../core/recipes-format.js';
 
 const TABS = [
   ['list', 'List', listView],
@@ -56,9 +56,6 @@ export async function mount(root, { storage } = {}) {
         await app.closeShop();
         break;
       case 'cancelClose': app.ui.confirmingClose = false; break;
-      case 'nickname':   app.setNickname(args[0]); break;
-      case 'clientId':   app.setConfig('clientId', args[0]); break;
-      case 'folder':     app.setConfig('folder', args[0]); break;
       case 'signIn':
         try { await app.connect(); }
         catch (err) { app.config.authError = err.message; }
@@ -67,7 +64,7 @@ export async function mount(root, { storage } = {}) {
       case 'syncNow':    await app.refresh({ force: true }); break;
       case 'recipesFile':
         // A different file is a different recipe book: start again on it.
-        app.setConfig('recipesFile', args[0]);
+        app.setConfig('recipesFile', (app.ui.recipesFile ?? app.config.recipesFile ?? '').trim());
         location.reload();
         return;
       case 'recipesCheck':  await app.recipes.refresh({ force: true }); break;
@@ -82,14 +79,6 @@ export async function mount(root, { storage } = {}) {
       case 'draftCancel': app.ui.draft = null; break;
       case 'draftAddRow': app.ui.draft.rows.push(blankRow(app.ui.draft)); break;
       case 'draftRemoveRow': app.ui.draft.rows.splice(args[0], 1); break;
-      case 'draftRowName': {
-        // Settle the unit to one this ingredient allows.
-        const row = app.ui.draft.rows[args[0]];
-        const choice = unitChoices(app.recipes.raw, row.name);
-        if (choice.kind === 'choose' && !choice.options.includes(row.unit)) row.unit = choice.options[0];
-        if (choice.kind === 'fixed') row.unit = choice.unit;
-        break;
-      }
       case 'draftReopen': app.ui.draft = recipeToDraft(app.recipes.raw, app.ui.draft.id); break;
       case 'draftOverride':
         app.ui.draft = rebaseDraft(app.ui.draft, app.recipes.raw);
@@ -110,7 +99,31 @@ export async function mount(root, { storage } = {}) {
     render();
   };
 
+  // Every render rebuilds the screen, so the element someone is typing in is
+  // replaced by a new one. Carry focus, caret and scroll across to it, or each
+  // keystroke in a search box would drop the keyboard after one letter.
+  const FIELDS = 'input:not([type=checkbox]), textarea, select';
+  const typingIn = () => {
+    const a = document.activeElement;
+    return a && root.contains(a) && a.matches(FIELDS) ? a : null;
+  };
+
   function render() {
+    const active = typingIn();
+    const at = active ? [...root.querySelectorAll(FIELDS)].indexOf(active) : -1;
+    let caret = null;
+    try { caret = active && [active.selectionStart, active.selectionEnd]; } catch { /* not a text field */ }
+    const scroll = window.scrollY;
+    draw();
+    window.scrollTo(0, scroll);
+    const next = at >= 0 ? root.querySelectorAll(FIELDS)[at] : null;
+    if (next && next.tagName === active.tagName && next.type === active.type) {
+      next.focus({ preventScroll: true });
+      try { if (caret?.[0] !== null && caret) next.setSelectionRange(caret[0], caret[1]); } catch { /* not a text field */ }
+    }
+  }
+
+  function draw() {
     const view = TABS.find(([id]) => id === app.ui.tab)?.[2] ?? listView;
     clear(root).append(
       statusBar(app, { onAction }),
@@ -131,10 +144,22 @@ export async function mount(root, { storage } = {}) {
   // shows stale data is, to the person holding it, one that never received the
   // change. FR-SYNC-7.
   //
-  // The one exception is the recipe editor on screen: re-rendering would take the
-  // cursor from someone typing. The editor shows no shared state, and the rest
-  // catches up the moment it closes.
-  const background = () => { if (!(app.ui.draft && app.ui.tab === 'recipes')) render(); };
+  // The one exception is someone typing. A background redraw would take the box
+  // from under them (and on a phone, the keyboard with it), so it waits until
+  // they leave the field; the recipe editor waits until it closes. Neither
+  // shows shared state that could be stale meanwhile.
+  let owed = false;
+  const background = () => {
+    if ((app.ui.draft && app.ui.tab === 'recipes') || typingIn()) { owed = true; return; }
+    owed = false;
+    render();
+  };
+  root.addEventListener('focusout', (e) => {
+    // Moving from one field to the next is still typing.
+    if (owed && !(e.relatedTarget && root.contains(e.relatedTarget) && e.relatedTarget.matches(FIELDS))) {
+      setTimeout(background, 0);
+    }
+  });
   app.store.subscribe(background);
   app.recipes.subscribe(background);
   app.start(background);

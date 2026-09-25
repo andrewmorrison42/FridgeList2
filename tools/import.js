@@ -5,7 +5,11 @@
 // writes data/library.json in the shape src/core/library.js expects, plus a
 // report of everything that needed a human.
 //
-//   node tools/import.js [source.json] [trip-history.json]
+// data/library.json is public (it ships with the app as the seed library), so
+// the CLI writes recipes and ingredients only. Trip history is household
+// history and stays in the household's own OneDrive.
+//
+//   node tools/import.js [source.json]
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -202,10 +206,10 @@ export function renderReport(report) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const src = process.argv[2] ?? 'data/recipes-data.reviewed.json';
-  const hist = process.argv[3] ?? null;
   const source = JSON.parse(readFileSync(src, 'utf8'));
-  const trips = hist ? JSON.parse(readFileSync(hist, 'utf8')) : { trips: [] };
-  const { library, report } = importLibrary(source, trips);
+  const { library, report } = importLibrary(source);
+  delete library.trips;
+  delete report.counts.trips;
   writeFileSync('data/library.json', JSON.stringify(library));
   writeFileSync('data/import-report.md', renderReport(report));
   console.log('wrote data/library.json and data/import-report.md');

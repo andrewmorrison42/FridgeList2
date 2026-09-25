@@ -94,34 +94,41 @@ export function createRecipeSource({ file, path, cache, fetchSeed, now = () => D
     },
 
     /**
-     * Save one recipe's draft.
-     * @returns {Promise<{ recipeId } | { error } | { conflict: true }>}
+     * Change the file: `change(current)` returns `{ source }` with the new
+     * contents, or `{ error }` / `{ conflict: true }` to write nothing. It is
+     * given the file as it is now — re-read for every attempt — never the copy
+     * something opened on, so a change made elsewhere meanwhile survives.
+     * @returns {Promise<object>} what `change` returned, less `source`
      */
-    async save(draft) {
+    async update(change) {
+      const done = (out) => { const { source: _, ...rest } = out; return rest; };
       if (mode === 'local') {
-        const out = applyDraft(source, draft);
+        const out = change(source);
         if (out.error || out.conflict) return out;
         if (!out.unchanged) await adopt(JSON.stringify(out.source), null);
-        return { recipeId: out.recipeId };
+        return done(out);
       }
       for (let i = 0; i < ATTEMPTS; i++) {
         const got = await file.read(path);
         if (!got) { state = 'missing'; notify(); return { error: `The recipe file ${path} is not there any more.` }; }
-        const current = JSON.parse(got.content);
-        const out = applyDraft(current, draft);
-        if (out.error || out.conflict) {
+        const out = change(JSON.parse(got.content));
+        if (out.error || out.conflict || out.unchanged) {
           await adopt(got.content, got.etag);    // show what is there now
-          return out;
+          return out.unchanged ? done(out) : out;
         }
-        if (out.unchanged) { await adopt(got.content, got.etag); return { recipeId: out.recipeId }; }
         const text = JSON.stringify(out.source);
         const wrote = await file.put(path, text, { ifMatch: got.etag });
         if (wrote === CONFLICT) continue;        // changed between our read and write: go round
         await adopt(text, wrote.etag);
         state = 'ok'; error = null; checkedAt = now();
-        return { recipeId: out.recipeId };
+        return done(out);
       }
       return { error: 'The recipe file kept changing while saving. Nothing was overwritten — try again in a moment.' };
+    },
+
+    /** Save one recipe's draft. @returns {Promise<{ recipeId } | { error } | { conflict: true }>} */
+    save(draft) {
+      return self.update((current) => applyDraft(current, draft));
     },
 
     /** Start a recipe file where there is none, from the seed. Never overwrites one. */

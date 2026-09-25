@@ -112,6 +112,35 @@ flagged rather than overwritten. **While both apps are in use, edit recipes in
 only one of them at a time:** the earlier app can still overwrite a recent edit
 made here.
 
+The editor also sets the slow-cooker and in-season tags and the source website,
+adds and renames section headings (Marinade, Icing), and moves lines up and down
+— a line moved past a heading goes into that section. **Delete recipe** is at the
+bottom of the editor. From a recipe, **Copy** puts it on the clipboard laid out
+for an email or a message, and **Keep the screen on** stops the phone dimming
+while you cook (remembered per phone; also in Setup).
+
+**Import from website** (on the Recipes tab) takes a recipe pasted from a site:
+either what the **🛒 Grab Recipe** bookmark copies — set it up from the import
+screen; it is the same bookmark the earlier app used — or the whole page,
+selected and copied. It opens in the editor with each website line shown beside
+its row and the likeliest ingredients offered, and nothing is saved until
+**Save**.
+
+A new ingredient typed into a recipe asks where it goes on the shopping list
+(category and aisle) and how it is bought (weight, volume or counted). **Setup →
+Ingredient list** shows every ingredient's category, aisle and unit, and flags
+the ones still needing any of them.
+
+**Setup → Shopping list** holds the household's staples (bought every week, with
+amounts) and two switches: staples on or off, and **Pantry items start as "at
+home"**, which puts recipe Pantry items in an *At home already* group on the list
+with a **Need it** button. These live in the recipe file's settings, so they
+apply on every phone and in the earlier app too.
+
+The **Plan** tab prints the week's menu for the fridge (**Print menu**), and the
+**Wait** tab takes anything typed in, not only ingredients from the list — it
+appears on the shopping list under *Wait list*.
+
 A device not connected to OneDrive keeps its own copy, started from the starter
 recipes in `data/recipes-data.reviewed.json`. That file is public, so it holds
 recipes and ingredients only — no trip history or cook dates.

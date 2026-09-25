@@ -6,7 +6,11 @@ import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
 import { connectView } from './connect.js';
-import { recipeToDraft, blankRow, rebaseDraft } from '../core/recipes-format.js';
+import {
+  recipeToDraft, blankRow, rebaseDraft, moveItem, deleteRecipe, setFeature, setStaple, removeStaple, setIngredient,
+} from '../core/recipes-format.js';
+import { parseImportPaste, draftFromImport, GRAB_RECIPE_BOOKMARKLET } from '../core/web-import.js';
+import { recipeToText, recipeToHtml } from '../core/recipe-text.js';
 
 const TABS = [
   ['list', 'List', listView],
@@ -40,6 +44,44 @@ export function failure(err, app = null) {
   );
 }
 
+/**
+ * Put a recipe on the clipboard with its formatting, for an email or a
+ * document, and as plain text for anywhere that cannot take formatting.
+ */
+async function copyRich(html, text) {
+  try {
+    if (html && navigator.clipboard?.write && typeof ClipboardItem === 'function') {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      })]);
+      return true;
+    }
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      // Older browsers: copy from a hidden box.
+      const box = Object.assign(document.createElement('textarea'), { value: text });
+      box.style.cssText = 'position:fixed;opacity:0';
+      document.body.append(box);
+      box.select();
+      const ok = document.execCommand('copy');
+      box.remove();
+      return ok;
+    } catch { return false; }
+  }
+}
+
+/** Print one part of the screen only (styles.css): the week's menu, for the fridge. */
+function printOnly(cls) {
+  document.body.classList.add(cls);
+  const done = () => { document.body.classList.remove(cls); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+  setTimeout(done, 1000);    // browsers that return from print() without afterprint
+}
+
 export async function mount(root, { storage } = {}) {
   const app = await createApp({ storage });
   app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false };
@@ -51,6 +93,7 @@ export async function mount(root, { storage } = {}) {
         // the confirmation shadows every screen and the only way out is to
         // answer it, which is not what tapping "Recipes" means.
         app.ui.confirmingClose = false;
+        app.ui.flash = null;
         if (app.ui.tab !== args[0]) app.ui.scrollTo = 0;
         app.ui.tab = args[0];
         location.hash = args[0];
@@ -60,11 +103,13 @@ export async function mount(root, { storage } = {}) {
         if (args[0]) { app.ui.listScroll = window.scrollY; app.ui.scrollTo = 0; }
         else app.ui.scrollTo = app.ui.listScroll ?? 0;
         app.ui.openRecipe = args[0];
+        app.ui.flash = null;
         break;
       case 'plan':       app.planRecipe(args[0], args[1]); break;
       case 'unplan':     app.unplanRecipe(args[0]); break;
       case 'cooked':     app.markCooked(args[0]); break;
       case 'addWait':    app.addWaitList(args[0]); app.ui.waitSearch = ''; break;
+      case 'addWaitText': app.addWaitListText(args[0]); app.ui.waitSearch = ''; break;
       case 'removeWait': app.removeWaitList(args[0]); break;
       case 'suppress':   app.suppressLine(args[0]); break;
       case 'addLine':    app.addLine(args[0]); break;
@@ -110,9 +155,80 @@ export async function mount(root, { storage } = {}) {
       case 'draftCancel': app.ui.draft = null; app.ui.scrollTo = 0; break;
       case 'draftAddRow':
         app.ui.draft.rows.push(blankRow(app.ui.draft));
-        app.ui.focus = '.ing-row:last-of-type .ing-name';   // ready to type into
+        app.ui.focus = '.ing-rows > :last-child .ing-name';   // ready to type into
+        break;
+      case 'draftAddHeading':
+        app.ui.draft.rows.push({ heading: '' });
+        app.ui.focus = '.ing-rows > :last-child .heading-name';
         break;
       case 'draftRemoveRow': app.ui.draft.rows.splice(args[0], 1); break;
+      case 'draftMove':  moveItem(app.ui.draft, args[0], args[1]); break;
+      case 'draftPick':  app.ui.draft.rows[args[0]].name = args[1]; break;
+      case 'draftDelete': {
+        const d = app.ui.draft;
+        const name = d.name.trim() || 'this recipe';
+        const planned = app.selections.has(d.id);
+        if (!confirm(`Delete “${name}”? ${planned ? 'It is on this week\'s menu. ' : ''}This cannot be undone from the app.`)) break;
+        d.saving = true; render();
+        const out = await app.changeRecipes((current) => deleteRecipe(current, d.id));
+        d.saving = false;
+        if (out.error) { d.error = out.error; break; }
+        app.ui.draft = null; app.ui.openRecipe = null;
+        app.ui.scrollTo = app.ui.listScroll ?? 0;
+        break;
+      }
+
+      // -- recipes: copy, share, keep awake, import --
+      case 'copyRecipe': {
+        const r = app.recipes.raw.recipes.find((x) => x.id === args[0]);
+        app.ui.flash = (await copyRich(recipeToHtml(app.recipes.raw, r), recipeToText(app.recipes.raw, r)))
+          ? 'Copied — paste it into an email or a message.' : 'Could not reach the clipboard on this device.';
+        break;
+      }
+      case 'shareRecipe': {
+        const r = app.recipes.raw.recipes.find((x) => x.id === args[0]);
+        try { await navigator.share({ title: r.name, text: recipeToText(app.recipes.raw, r) }); } catch { /* dismissed */ }
+        return;
+      }
+      case 'keepAwake':  app.wake.wanted = args[0]; break;
+      case 'importOpen': app.ui.importing = { text: '' }; app.ui.scrollTo = 0; app.ui.flash = null; break;
+      case 'importCancel': app.ui.importing = null; app.ui.flash = null; break;
+      case 'importPaste':
+        try { app.ui.importing.text = await navigator.clipboard.readText(); }
+        catch { app.ui.importing.error = 'Could not read the clipboard — paste into the box instead.'; }
+        break;
+      case 'importParse': {
+        const im = app.ui.importing;
+        const parsed = parseImportPaste(im.text);
+        if (!parsed) { im.error = 'Paste the recipe into the box first.'; break; }
+        const draft = draftFromImport(app.recipes.raw, parsed);
+        if (parsed.weak) {
+          draft.error = 'Could not find "Ingredients" and "Method" headings in that text, so only the name was picked up. '
+            + 'Fill in the rest, or go back and try the Grab Recipe bookmark.';
+        }
+        app.ui.importing = null;
+        app.ui.draft = draft;
+        app.ui.scrollTo = 0;
+        break;
+      }
+      case 'copyGrabCode':
+        app.ui.flash = (await copyRich(null, GRAB_RECIPE_BOOKMARKLET))
+          ? 'Copied. Now make a bookmark and paste this as its address.' : 'Could not reach the clipboard on this device.';
+        break;
+      case 'printMenu':  printOnly('print-menu'); return;
+      case 'printList':  window.print(); return;
+
+      // -- Setup: the household's switches, staples, the ingredient list --
+      case 'feature':       await settingsChange((src) => setFeature(src, args[0], args[1])); break;
+      case 'stapleSet':     await settingsChange((src) => setStaple(src, args[0], args[1])); break;
+      case 'stapleRemove':  await settingsChange((src) => removeStaple(src, args[0])); break;
+      case 'stapleAdd': {
+        const add = app.ui.stapleAdd;
+        if (!add.name.trim()) break;
+        if (await settingsChange((src) => setStaple(src, add.name, add.qty))) app.ui.stapleAdd = { name: '', qty: '' };
+        break;
+      }
+      case 'ingredientSet': await settingsChange((src) => setIngredient(src, args[0], args[1])); break;
       case 'draftReopen': app.ui.draft = recipeToDraft(app.recipes.raw, app.ui.draft.id); break;
       case 'draftOverride':
         app.ui.draft = rebaseDraft(app.ui.draft, app.recipes.raw);
@@ -132,6 +248,13 @@ export async function mount(root, { storage } = {}) {
     }
     render();
   };
+
+  /** A change to the shared settings or ingredient list. Returns whether it saved. */
+  async function settingsChange(change) {
+    const out = await app.changeRecipes(change);
+    app.ui.settingsError = out.error ?? null;
+    return !out.error;
+  }
 
   // Every render rebuilds the screen. So nothing may render while someone is
   // typing: a rebuilt box loses the half-built word a phone keyboard is
@@ -157,6 +280,7 @@ export async function mount(root, { storage } = {}) {
       clear(root).append(failure(err, app));
     }
     window.scrollTo(0, scroll);
+    app.wake.apply(app.ui.tab === 'recipes' && !!app.ui.openRecipe && !app.ui.draft && !app.ui.importing);
     if (app.ui.focus) {
       root.querySelector(app.ui.focus)?.focus();
       app.ui.focus = null;

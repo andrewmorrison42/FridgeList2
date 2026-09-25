@@ -5,14 +5,15 @@
 // never served from here — a cached copy of someone's shopping list is exactly
 // the "stale data presented as current" that FR-SYNC-2 forbids.
 
-const CACHE = 'fridgelist-v3';
+const CACHE = 'fridgelist-v4';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',
-  './src/ui/views.js', './src/ui/status.js', './src/ui/connect.js', './src/ui/editor.js',
+  './src/ui/views.js', './src/ui/status.js', './src/ui/connect.js', './src/ui/editor.js', './src/ui/wakelock.js',
   './src/core/events.js', './src/core/merge.js', './src/core/store.js',
   './src/core/units.js', './src/core/generate.js', './src/core/carryover.js',
   './src/core/shop.js', './src/core/library.js', './src/core/recipes-format.js',
+  './src/core/recipe-text.js', './src/core/web-import.js',
   './src/data/storage.js', './src/data/sync.js', './src/data/presence.js',
   './src/data/persist.js', './src/data/onedrive.js', './src/data/auth.js', './src/data/recipes.js',
   './src/version.js',

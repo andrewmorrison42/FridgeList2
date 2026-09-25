@@ -10,10 +10,12 @@ import { selections, PLANNED, CARRIED, FLAGGED } from './carryover.js';
 
 /**
  * @param {object} library  { recipes: Map, ingredients: Map }
- * @param {object} plan     { events, shopId, waitList, dismissed }
- * @returns {{ lines: Array, carryOver: Array, problems: Array }}
+ * @param {object} plan     { events, shopId, waitList, dismissed, added }
+ *   `added`: ingredients someone has said are needed on this shop — "Need it"
+ *   on an at-home line, "Still need it" on a carried-over one.
+ * @returns {{ lines: Array, atHome: Array, carryOver: Array, problems: Array }}
  */
-export function generate(library, { events, shopId, waitList = [], dismissed = new Set() }) {
+export function generate(library, { events, shopId, waitList = [], dismissed = new Set(), added = new Set() }) {
   const { recipes, ingredients } = library;
   const sels = [...selections(events).values()];
   const problems = [];
@@ -26,7 +28,10 @@ export function generate(library, { events, shopId, waitList = [], dismissed = n
   const carriedOnly = new Map();
 
   const add = (bucket, ingredientId, qty, source) => {
-    const ing = ingredients.get(ingredientId);
+    // A Wait List item typed in rather than picked from the ingredient list has
+    // no aisle to go in; it gets a line of its own under "Wait list".
+    const ing = ingredients.get(ingredientId) ?? (source.text
+      ? { name: source.text, shoppingUnit: 'qty', category: 'Other', aisle: 'Wait list' } : null);
     if (!ing) { problems.push({ kind: 'unknown-ingredient', ingredientId, source }); return; }
     if (!bucket.has(ingredientId)) {
       bucket.set(ingredientId, {
@@ -69,7 +74,8 @@ export function generate(library, { events, shopId, waitList = [], dismissed = n
 
   // 4. Open Wait List items.
   for (const item of waitList) {
-    add(main, item.ingredientId, item.qty ?? 1, { kind: 'waitlist', itemId: item.id, note: item.note });
+    const id = item.ingredientId ?? freeTextId(item.text);
+    add(main, id, item.qty ?? 1, { kind: 'waitlist', itemId: item.id, note: item.note, text: item.ingredientId ? null : item.text });
   }
 
   // 6. Carried-over entries do not fold into the ordinary lines. FR-MENU-7.1.
@@ -84,12 +90,36 @@ export function generate(library, { events, shopId, waitList = [], dismissed = n
     }
   }
 
+  // "Still need it" on a carried-over line puts it on the list proper.
+  for (const [id, line] of carriedOnly) {
+    if (!added.has(id)) continue;
+    carriedOnly.delete(id);
+    main.set(id, line);
+  }
+
+  // Ingredients the household usually has in — Pantry items, when that option
+  // is on — start in "at home already" rather than on the buy list, with one
+  // tap to need them. Only when every reason for the line is a recipe: a Wait
+  // List item or a staple is there because someone asked for it to be bought.
+  const atHome = [];
+  for (const [id, line] of main) {
+    if (!ingredients.get(id)?.startsAtHome || added.has(id)) continue;
+    if (line.sources.some((src) => src.kind !== 'recipe')) continue;
+    main.delete(id);
+    atHome.push(line);
+  }
+
   return {
     lines: [...main.values()],
+    atHome,
     carryOver: [...carriedOnly.values()],
     problems,
   };
 }
+
+/** The line id for a Wait List item typed in by hand: one line per wording. */
+export const freeTextId = (text) =>
+  `x-${String(text ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'item'}`;
 
 /**
  * Group for display: category as header, aisle as subheading. FR-LIST-6, §10.1.

@@ -10,7 +10,7 @@ import { createStore } from '../core/store.js';
 import { currentShop, nextShopId, permissions, explainRefusal } from '../core/shop.js';
 import { cookHistory } from '../core/library.js';
 import { selections, carryOverTransitions } from '../core/carryover.js';
-import { generate } from '../core/generate.js';
+import { generate, freeTextId } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { createMemoryStorage } from '../data/storage.js';
 import { createOneDriveStorage, createOneDriveFiles } from '../data/onedrive.js';
@@ -19,6 +19,8 @@ import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
 import { openLocal, deviceIdentity, local } from '../data/persist.js';
 import { createRecipeSource } from '../data/recipes.js';
+import { applyDraft } from '../core/recipes-format.js';
+import { createWakeLock } from './wakelock.js';
 import { VERSION, RELEASED } from '../version.js';
 
 const SEED = 'data/recipes-data.reviewed.json';
@@ -101,6 +103,7 @@ export async function createApp({ storage } = {}) {
   const app = {
     identity, store, sync, presence, storage, config, auth, recipes,
     version: VERSION, released: RELEASED,
+    wake: createWakeLock(),
 
     get shop() { return currentShop(store.events); },
     get can() { return permissions(store.events); },
@@ -118,8 +121,13 @@ export async function createApp({ storage } = {}) {
         [...store.state].filter(([k, v]) => k.startsWith(`carryover:${id}:`) && v.value === true)
           .map(([k]) => k.split(':')[2]),
       );
+      const prefix = `line:${id}:`;
+      const added = new Set(
+        [...store.state].filter(([k, v]) => k.startsWith(prefix) && k.endsWith(':present') && v.value === true)
+          .map(([k]) => k.slice(prefix.length, -':present'.length)),
+      );
       return generate(this.library, {
-        events: store.events, shopId: id, waitList: this.waitList(), dismissed,
+        events: store.events, shopId: id, waitList: this.waitList(), dismissed, added,
       });
     },
 
@@ -129,7 +137,7 @@ export async function createApp({ storage } = {}) {
         const m = /^waitlist:(.+):present$/.exec(key);
         if (m && reg.value === true) {
           const p = reg.by[0]?.payload ?? {};
-          out.push({ id: m[1], ingredientId: p.ingredientId, note: p.note ?? null, qty: p.qty ?? 1 });
+          out.push({ id: m[1], ingredientId: p.ingredientId ?? null, text: p.text ?? null, note: p.note ?? null, qty: p.qty ?? 1 });
         }
       }
       return out;
@@ -159,6 +167,13 @@ export async function createApp({ storage } = {}) {
       return record(device.emit('waitlist.item', { itemId: id, ingredientId, note, present: true }, phase));
     },
 
+    /** Something not in the ingredient list — "bin bags", "birthday candles". */
+    addWaitListText(text, note = null) {
+      const { phase } = currentShop(store.events);
+      const id = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+      return record(device.emit('waitlist.item', { itemId: id, ingredientId: null, text: text.trim(), note, present: true }, phase));
+    },
+
     removeWaitList(itemId) {
       const { phase } = currentShop(store.events);
       return record(device.emit('waitlist.item', { itemId, present: false }, phase));
@@ -169,7 +184,7 @@ export async function createApp({ storage } = {}) {
       const { id, phase } = currentShop(store.events);
       const events = [device.emit('line.suppressed', { shopId: id, ingredientId, suppressed: true }, phase)];
       for (const item of this.waitList()) {
-        if (item.ingredientId !== ingredientId) continue;
+        if ((item.ingredientId ?? freeTextId(item.text)) !== ingredientId) continue;
         // "We already have it" settles the Wait List entry just as buying it
         // would; leaving it open makes it reappear on every future shop.
         events.push(device.emit('waitlist.item', { itemId: item.id, present: false }, phase));
@@ -293,11 +308,19 @@ export async function createApp({ storage } = {}) {
     },
 
     /** Save a recipe from the editor to the recipe file. */
-    async saveRecipe(draft) {
+    saveRecipe(draft) {
+      return app.changeRecipes((current) => applyDraft(current, draft));
+    },
+
+    /**
+     * Any change to the recipe file — a recipe, the ingredient list, staples,
+     * the shared switches. Guarded like every write to it (data/recipes.js).
+     */
+    async changeRecipes(change) {
       try {
-        return await recipes.save(draft);
+        return await recipes.update(change);
       } catch (err) {
-        return { error: `Could not save: ${err.message}. Your changes are still here — try again when you have signal.` };
+        return { error: `Could not save: ${err.message}. Nothing was changed — try again when you have signal.` };
       }
     },
   };

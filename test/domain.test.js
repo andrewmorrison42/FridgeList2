@@ -215,3 +215,50 @@ describe('garnish lines (A6)', () => {
     expect(lines.map((l) => l.ingredientId)).toEqual(['flour']);
   });
 });
+
+describe('at home already, Need it, and Wait List items typed in', () => {
+  const oil = { id: 'oil', name: 'Oil: olive', shoppingUnit: 'mL', category: 'Pantry', aisle: 'Sauces', startsAtHome: true };
+  const lib = {
+    ingredients: new Map([[flour.id, flour], [oil.id, oil], [capsicum.id, capsicum]]),
+    recipes: new Map([['stir', { id: 'stir', name: 'Stir fry', servings: 4, lines: [
+      { ingredientId: 'oil', quantity: 40 }, { ingredientId: 'capsicum', quantity: 2 },
+    ] }]]),
+  };
+  const d = createDevice('h');
+  const plan = [d.emit('menu.selection', { recipeId: 'stir', present: true, servings: 4, plannedFor: GENESIS_SHOP }, 'draft')];
+
+  it('a Pantry line starts at home; "Need it" puts it on the list', () => {
+    const out = generate(lib, { events: plan, shopId: GENESIS_SHOP });
+    expect(out.lines.map((l) => l.ingredientId)).toEqual(['capsicum']);
+    expect(out.atHome.map((l) => l.ingredientId)).toEqual(['oil']);
+    const needed = generate(lib, { events: plan, shopId: GENESIS_SHOP, added: new Set(['oil']) });
+    expect(needed.lines.map((l) => l.ingredientId).sort()).toEqual(['capsicum', 'oil']);
+    expect(needed.atHome).toEqual([]);
+  });
+
+  it('a Pantry item on the Wait List is bought, never assumed at home', () => {
+    const out = generate(lib, { events: plan, shopId: GENESIS_SHOP, waitList: [{ id: 'w1', ingredientId: 'oil' }] });
+    expect(out.lines.map((l) => l.ingredientId)).toContain('oil');
+    expect(out.atHome).toEqual([]);
+  });
+
+  it('a Wait List item typed in gets a line of its own, one per wording', () => {
+    const out = generate(lib, { events: [], shopId: GENESIS_SHOP, waitList: [
+      { id: 'w1', ingredientId: null, text: 'Bin bags' }, { id: 'w2', ingredientId: null, text: 'bin bags ' },
+    ] });
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).toMatchObject({ ingredientId: 'x-bin-bags', name: 'Bin bags', qty: 2, aisle: 'Wait list' });
+    expect(out.problems).toEqual([]);
+  });
+
+  it('"Still need it" on a carried-over line moves it onto the list', () => {
+    const c = createDevice('s');
+    let events = [c.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft')];
+    events = [...events, ...carryOverTransitions(events, 'shop-0002', c)];
+    const before = generate(library, { events, shopId: 'shop-0002' });
+    expect(before.carryOver.map((l) => l.ingredientId).sort()).toEqual(['basil', 'capsicum']);
+    const after = generate(library, { events, shopId: 'shop-0002', added: new Set(['basil']) });
+    expect(after.lines.map((l) => l.ingredientId)).toContain('basil');
+    expect(after.carryOver.map((l) => l.ingredientId)).toEqual(['capsicum']);
+  });
+});

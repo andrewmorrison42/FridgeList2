@@ -27,8 +27,9 @@ describe('reading the file', () => {
     const lib = toLibrary(fresh());
     const d = createDevice('d1');
     const events = [d.emit('menu.selection', { recipeId: 'mushroom-risotto', present: true, servings: 4 }, 'draft')];
-    const { lines } = generate(lib, { events, shopId: 'shop:genesis' });
-    const wine = lines.find((l) => l.name === 'Wine: white');
+    const { lines, atHome } = generate(lib, { events, shopId: 'shop:genesis' });
+    // Wine is a Pantry item, so with "pantry starts at home" on it may be in either.
+    const wine = [...lines, ...atHome].find((l) => l.name === 'Wine: white');
     expect(wine.qty).toBe(500);
     expect(wine.unit).toBe('mL');
   });

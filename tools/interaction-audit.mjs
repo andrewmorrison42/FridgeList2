@@ -92,7 +92,7 @@ await page.evaluate(() => window.scrollTo(0, 0));
 await page.locator('button.link').first().tap(); await page.waitForTimeout(200);
 await page.locator('button:has-text("Edit")').tap(); await page.waitForTimeout(200);
 await page.locator('button:has-text("+ Add ingredient")').tap(); await page.waitForTimeout(200);
-report('Editor: after "+ Add ingredient", focus in new row', await focusedIs('.ing-row:last-child input.ing-name'));
+report('Editor: after "+ Add ingredient", focus in new row', await focusedIs('.ing-rows > :last-child input.ing-name'));
 await page.locator('.ing-row').last().locator('input.ing-name').tap();
 const r6 = await replaced(() => composeWords('Butter'));
 report('Editor ingredient name (composed)', JSON.stringify(await page.locator('.ing-row').last().locator('input.ing-name').inputValue()) + (r6 ? '  — REPLACED' : '  — kept'));

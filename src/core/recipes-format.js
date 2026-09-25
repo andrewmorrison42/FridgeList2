@@ -70,6 +70,7 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
       conversions: {},
       preference: raw.preference ?? null,
       isStaple: false,
+      startsAtHome: false,
     };
     if (!raw.shoppingUnit) report.referred.push({ kind: 'no-shopping-unit', name: raw.name });
     ingredients.push(ing);
@@ -77,12 +78,23 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
   }
 
   // Staples are a property of the ingredient, held separately from recipe and
-  // Wait List membership; the three are never conflated (FR-STA-2).
-  for (const name of settings.staples ?? []) {
+  // Wait List membership; the three are never conflated (FR-STA-2). Only while
+  // the household has staples switched on — the switch lives in the same file
+  // and the earlier app honours it, so both apps agree on what goes on a list.
+  for (const name of settings.features?.staples ? settings.staples ?? [] : []) {
     const ing = byName.get(name);
     if (!ing) { report.referred.push({ kind: 'unknown-staple', name }); continue; }
     ing.isStaple = true;
-    ing.stapleQty = settings.stapleQty?.[name] ?? 1;
+    ing.stapleQty = stapleQtyOf(source, name) ?? 1;
+  }
+
+  // Which ingredients start a new list in "at home already", as the earlier app
+  // decides it: Pantry items when that option is on, and anything the household
+  // has said it always has in. The list keeps Wait List items and staples on the
+  // buy list regardless (generate.js).
+  const always = new Set((settings.alwaysAtHome ?? []).map(normName));
+  for (const ing of ingredients) {
+    ing.startsAtHome = (!!settings.features?.pantryAtHome && ing.category === 'Pantry') || always.has(normName(ing.name));
   }
 
   // -- conversions: one factor per (ingredient, cooking unit) ---------------
@@ -159,6 +171,7 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
     recipes.push({
       id: raw.id, name: raw.name, category: raw.category ?? null,
       servings: raw.servings || 4, lines,
+      slowCooker: !!raw.slowCooker, inSeason: raw.inSeason !== false,
       method: raw.method ?? [], notes: raw.notes ?? null,
       source: raw.source ?? null, sourceUrl: raw.sourceUrl ?? null,
     });
@@ -195,7 +208,13 @@ export function importLibrary(source, tripHistory = { trips: [] }, { now = Date.
 export const MEASURE_ML = { cup: 250, TBsp: 20, tsp: 5 };
 const MEASURE_FRACTIONS = { cup: [1 / 8, 1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4], tsp: [1 / 8, 1 / 4, 1 / 2, 3 / 4], TBsp: [1 / 2] };
 const FRACTION_GLYPHS = [[1 / 8, '⅛'], [1 / 4, '¼'], [1 / 3, '⅓'], [1 / 2, '½'], [2 / 3, '⅔'], [3 / 4, '¾']];
-const EDITED = ['name', 'category', 'servings', 'ingredients', 'method', 'notes'];
+// The fields the editor changes, read the way the earlier app reads them, so a
+// recipe that never had a `slowCooker` key compares equal to one set false.
+const EDITED = {
+  name: (r) => r.name ?? '', category: (r) => r.category ?? '', servings: (r) => r.servings ?? null,
+  ingredients: (r) => r.ingredients ?? [], method: (r) => r.method ?? [], notes: (r) => r.notes ?? '',
+  slowCooker: (r) => !!r.slowCooker, inSeason: (r) => r.inSeason !== false, sourceUrl: (r) => r.sourceUrl ?? '',
+};
 
 export function parseMeasureQty(str) {
   if (str === null || str === undefined) return null;
@@ -246,18 +265,21 @@ export function findIngredient(source, name) {
 /**
  * Which units a line for this ingredient may use: a choice of the shopping
  * unit or a kitchen measure for g/mL ingredients, the shopping unit alone for
- * anything else known, and free text for a new ingredient.
+ * anything else known, and free text for a new ingredient — unless the row has
+ * already said how the new ingredient is bought.
  */
-export function unitChoices(source, name) {
+export function unitChoices(source, name, row = null) {
   const ing = findIngredient(source, name);
-  if (!ing) return { kind: 'free' };
-  if (ing.shoppingUnit === 'g' || ing.shoppingUnit === 'mL') {
-    return { kind: 'choose', options: [ing.shoppingUnit, 'cup', 'TBsp', 'tsp'] };
-  }
-  return { kind: 'fixed', unit: ing.shoppingUnit ?? '' };
+  const unit = ing ? ing.shoppingUnit : row?.newUnit;
+  if (!ing && !unit) return { kind: 'free' };
+  if (unit === 'g' || unit === 'mL') return { kind: 'choose', options: [unit, 'cup', 'TBsp', 'tsp'] };
+  return { kind: 'fixed', unit: unit ?? '' };
 }
 
-const editedFields = (r) => JSON.stringify(EDITED.map((k) => r?.[k] ?? null));
+const editedFields = (r) => JSON.stringify(Object.values(EDITED).map((read) => (r ? read(r) : null)));
+
+/** A heading item in a draft's rows: every line below it, to the next, is in that section. */
+export const isHeading = (item) => item && Object.prototype.hasOwnProperty.call(item, 'heading');
 
 function lineToRow(source, line) {
   const ing = findIngredient(source, line.ingredientName);
@@ -266,7 +288,6 @@ function lineToRow(source, line) {
     qty: line.displayUnit ? String(line.displayQty ?? '') : String(line.quantity ?? ''),
     unit: line.displayUnit || line.unit || ing?.shoppingUnit || '',
     descriptor: line.descriptor ?? '',
-    section: line.section ?? '',
     orig: line,
   };
   // A unit the ingredient no longer allows reads as its shopping unit, which is
@@ -278,45 +299,72 @@ function lineToRow(source, line) {
   return row;
 }
 
+// Where a row sits (its section) is not part of this: moving a line leaves
+// what it says untouched.
 const rowKey = (r) => JSON.stringify([r.name.trim(), r.qty.trim(), r.unit, r.descriptor.trim()]);
 
 /** An editable copy of one recipe, or of a blank one when `recipeId` is null. */
 export function recipeToDraft(source, recipeId) {
   const r = recipeId ? source.recipes.find((x) => x.id === recipeId) : null;
   if (recipeId && !r) throw new Error(`no recipe ${recipeId}`);
+  // Section headings become items of their own, as in the earlier app's
+  // editor, so they can be renamed and moved. A line with no section after a
+  // sectioned one gets an empty heading, which keeps it out of that section.
+  const rows = [];
+  let section = '';
+  for (const line of r?.ingredients ?? []) {
+    const here = line.section ?? '';
+    if (here !== section) rows.push({ heading: here });
+    section = here;
+    rows.push(lineToRow(source, line));
+  }
   return {
     id: r?.id ?? null,
     base: r ? editedFields(r) : null,
     name: r?.name ?? '',
     category: r?.category ?? '',
     servings: String(r?.servings ?? 4),
+    slowCooker: r ? !!r.slowCooker : false,
+    inSeason: r ? r.inSeason !== false : true,
+    sourceUrl: r?.sourceUrl ?? '',
     method: (r?.method ?? []).join('\n'),
     notes: r?.notes ?? '',
-    rows: (r?.ingredients ?? []).map((l) => lineToRow(source, l)),
+    rows,
     error: null,
   };
 }
 
-export function blankRow(draft) {
-  // A row added at the end sits under the last section heading, as it does in
-  // the earlier app, where sections are read from the rows' positions.
-  const last = draft.rows[draft.rows.length - 1];
-  return { name: '', qty: '', unit: '', descriptor: '', section: last?.section ?? '', orig: null, opened: null };
+export function blankRow() {
+  return { name: '', qty: '', unit: '', descriptor: '', orig: null, opened: null };
+}
+
+/** Move a line or heading one place up (-1) or down (+1). */
+export function moveItem(draft, i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= draft.rows.length) return;
+  [draft.rows[i], draft.rows[j]] = [draft.rows[j], draft.rows[i]];
 }
 
 function rowToLine(source, row, newIngredients) {
   const name = row.name.trim();
   // A row nobody touched goes back exactly as it came, so opening and saving a
-  // recipe never rewrites lines the earlier app wrote in its own way.
-  if (row.orig && rowKey(row) === row.opened) return { line: row.orig };
+  // recipe never rewrites lines the earlier app wrote in its own way. Moved
+  // under another heading, only its section changes.
+  if (row.orig && rowKey(row) === row.opened) {
+    if ((row.orig.section ?? '') === row.section) return { line: row.orig };
+    const line = { ...row.orig };
+    if (row.section) line.section = row.section; else delete line.section;
+    return { line };
+  }
 
   const qtyText = row.qty.trim();
   const descriptor = row.descriptor.trim();
-  const ing = findIngredient(source, name) ?? newIngredients.find((i) => normName(i.name) === normName(name));
+  const known = findIngredient(source, name) ?? newIngredients.find((i) => normName(i.name) === normName(name));
+  const shopUnit = known ? known.shoppingUnit : (row.newUnit || null);
   const base = { ...(row.orig ?? {}) };
   delete base.displayQty; delete base.displayUnit; delete base.descriptor; delete base.section;
 
-  const measure = MEASURE_ML[row.unit] ? row.unit : (!ing ? kitchenMeasure(row.unit) : null);
+  const measure = MEASURE_ML[row.unit] ? row.unit : (!shopUnit ? kitchenMeasure(row.unit) : null);
   let line;
   if (measure) {
     const num = parseMeasureQty(qtyText);
@@ -325,21 +373,23 @@ function rowToLine(source, row, newIngredients) {
         : measure === 'tsp' ? 'whole numbers and ⅛ ¼ ½ ¾' : 'whole numbers and ½';
       return { error: `"${name}": "${qtyText}" isn't a valid amount in ${measure}. Allowed: ${allowed} (e.g. 1 ½).` };
     }
-    line = { ...base, ingredientName: ing?.name ?? name, quantity: measureToShoppingQty(num, measure),
-      unit: ing?.shoppingUnit ?? 'mL', displayQty: formatMeasureQty(num), displayUnit: measure };
+    line = { ...base, ingredientName: known?.name ?? name, quantity: measureToShoppingQty(num, measure),
+      unit: shopUnit ?? 'mL', displayQty: formatMeasureQty(num), displayUnit: measure };
   } else {
     if (parseMeasureQty(qtyText) === null) {
       return { error: `"${name}": the amount "${qtyText}" needs to be a number, like 2, 1/2 or 1 ½. Use 0 for "to serve".` };
     }
-    line = { ...base, ingredientName: ing?.name ?? name, quantity: qtyText, unit: ing?.shoppingUnit ?? row.unit.trim() };
+    line = { ...base, ingredientName: known?.name ?? name, quantity: qtyText, unit: shopUnit ?? row.unit.trim() };
   }
   if (row.section) line.section = row.section;
   if (descriptor) line.descriptor = descriptor;
 
-  if (!ing) {
-    // A name not in the ingredient list joins it, uncategorised, exactly as the
-    // earlier app adds one — rather than vanishing from the shopping list.
-    newIngredients.push({ name, shoppingUnit: line.unit || '', aisle: 'Uncategorised', shoppingCategory: 'Other' });
+  if (!known) {
+    // A name not in the ingredient list joins it, with the aisle, category and
+    // unit chosen for it in the editor, or uncategorised if none were — as
+    // the earlier app adds one — rather than vanishing from the shopping list.
+    newIngredients.push({ name, shoppingUnit: row.newUnit || line.unit || '',
+      aisle: row.newAisle || 'Uncategorised', shoppingCategory: row.newCategory || 'Other' });
   }
   return { line };
 }
@@ -368,6 +418,8 @@ export function applyDraft(source, draft) {
   if (!name) return { error: 'Please give the recipe a name.' };
   const servings = parseInt(draft.servings, 10);
   if (!(servings >= 1)) return { error: 'Servings needs to be a whole number, 1 or more.' };
+  const sourceUrl = (draft.sourceUrl ?? '').trim();
+  if (sourceUrl && !/^https?:\/\//i.test(sourceUrl)) return { error: 'The source website needs to start with http:// or https://' };
 
   let existing = null;
   if (draft.id) {
@@ -378,25 +430,38 @@ export function applyDraft(source, draft) {
 
   const newIngredients = [];
   const ingredients = [];
-  for (const row of draft.rows) {
-    if (!row.name.trim()) continue;
-    const out = rowToLine(next, row, newIngredients);
+  let section = '';
+  for (const item of draft.rows) {
+    if (isHeading(item)) { section = item.heading.trim(); continue; }
+    if (!item.name.trim()) continue;
+    const out = rowToLine(next, { ...item, section }, newIngredients);
     if (out.error) return { error: out.error };
     ingredients.push(out.line);
   }
   const method = String(draft.method ?? '').split('\n').map((x) => x.trim()).filter(Boolean)
     .map((x) => { const m = x.match(/^(?:—|–|--)\s*(.+)$/); return m ? `— ${m[1]}` : x; });
   const fields = { name, category: draft.category.trim(), servings, ingredients, method, notes: draft.notes.trim() };
+  const slowCooker = !!draft.slowCooker;
+  const inSeason = draft.inSeason !== false;
 
   if (existing) {
     // Only the edited fields change. Everything else on the recipe —
     // lastPlanned, images, wikiTitle, whatever the earlier app keeps — stays.
-    if (editedFields({ ...existing, ...fields }) === draft.base) return { source, recipeId: existing.id, unchanged: true };
+    const after = { ...existing, ...fields, slowCooker, inSeason, sourceUrl };
+    if (editedFields(after) === draft.base) return { source, recipeId: existing.id, unchanged: true };
     Object.assign(existing, fields);
+    // Flags and link are written only when they change, so a recipe that never
+    // had the key does not gain one just by being saved.
+    if (!!existing.slowCooker !== slowCooker) existing.slowCooker = slowCooker;
+    if ((existing.inSeason !== false) !== inSeason) existing.inSeason = inSeason;
+    if ((existing.sourceUrl ?? '') !== sourceUrl) {
+      if (sourceUrl) existing.sourceUrl = sourceUrl; else delete existing.sourceUrl;
+    }
   } else {
     // The same fields, in the same order, as a recipe the earlier app creates.
-    existing = { id: uniqueSlug(next, name), name, category: fields.category, servings, slowCooker: false,
-      inSeason: true, ingredients, method, images: [], notes: fields.notes, source: 'manual' };
+    existing = { id: uniqueSlug(next, name), name, category: fields.category, servings, slowCooker,
+      inSeason, ingredients, method, images: [], notes: fields.notes, source: draft.origin ?? 'manual' };
+    if (sourceUrl) existing.sourceUrl = sourceUrl;
     next.recipes.push(existing);
   }
 
@@ -407,6 +472,15 @@ export function applyDraft(source, draft) {
   return { source: next, recipeId: existing.id };
 }
 
+/** Remove one recipe. Its ingredients stay in the ingredient list. */
+export function deleteRecipe(source, recipeId) {
+  const next = structuredClone(source);
+  const i = next.recipes.findIndex((r) => r.id === recipeId);
+  if (i === -1) return { error: 'That recipe has already been deleted.' };
+  next.recipes.splice(i, 1);
+  return { source: next };
+}
+
 /**
  * Take someone else's version of this recipe as the new starting point while
  * keeping the draft's own changes: what "save mine anyway" does after a
@@ -415,4 +489,137 @@ export function applyDraft(source, draft) {
 export function rebaseDraft(draft, source) {
   const r = source.recipes.find((x) => x.id === draft.id);
   return r ? { ...draft, base: editedFields(r), error: null, conflict: false } : draft;
+}
+
+// -- the ingredient list, staples and shared settings ---------------------
+//
+// All in the file's `ingredients` and `settings`, which the earlier app reads
+// on every load, so every shape here is the one it writes: staples a plain
+// array of names, their amounts a separate map in the shopping unit, feature
+// switches in `settings.features`.
+
+/** Shopping categories, in list order, and the aisles each may use. */
+export const CATEGORIES = ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'];
+export const CATEGORY_AISLES = {
+  'Pantry': ['Alcohol', 'Bakery', 'Baking', 'Beverage', 'Biscuits', 'Breakfast', 'International',
+    'Rice/pasta', 'Sauces', 'Snacks', 'Spices', 'Tins - fruit', 'Tins - veg'],
+  'Cold': ['Dairy', 'Deli', 'Freezer'],
+  'Fruit and Vegetables': ['Fruit', 'Vegetables'],
+  'Meat': ['Fish', 'Meat'],
+  'Toiletries': ['Toiletries'],
+};
+export const SHOPPING_UNITS = [
+  { value: 'g', label: 'Weight (g)' },
+  { value: 'mL', label: 'Volume (mL)' },
+  { value: 'qty', label: 'Counted (each)' },
+];
+
+/** Every aisle in use or on the category lists, for a category with none of its own. */
+export function knownAisles(source) {
+  const all = new Set(Object.values(CATEGORY_AISLES).flat());
+  for (const i of source.ingredients ?? []) if (i.aisle && i.aisle !== 'Uncategorised') all.add(i.aisle);
+  return [...all].sort((a, b) => a.localeCompare(b));
+}
+export const aislesFor = (source, category) => CATEGORY_AISLES[category] ?? knownAisles(source);
+
+/**
+ * What an ingredient still needs before the shopping list can place and total
+ * it: the same three checks as the earlier app's "needs an aisle, category or
+ * unit" filter.
+ */
+export function needsAttention(ing) {
+  const missing = [];
+  if (!ing.shoppingCategory || ing.shoppingCategory === 'Other') missing.push('category');
+  if (!ing.aisle || ing.aisle === 'Uncategorised') missing.push('aisle');
+  if (!ing.shoppingUnit) missing.push('unit');
+  return missing;
+}
+
+/** Set an ingredient's category, aisle or unit. Only the fields given change. */
+export function setIngredient(source, name, fields) {
+  const next = structuredClone(source);
+  const ing = findIngredient(next, name);
+  if (!ing) return { error: `"${name}" is not in the ingredient list any more.` };
+  for (const k of ['shoppingCategory', 'aisle', 'shoppingUnit']) if (k in fields) ing[k] = fields[k];
+  return { source: next };
+}
+
+const settingsOf = (s) => {
+  if (!s.settings || typeof s.settings !== 'object') s.settings = {};
+  return s.settings;
+};
+
+/** A staple's amount in its shopping unit, read as the earlier app reads it. */
+function stapleQtyOf(source, name) {
+  const map = source.settings?.stapleQty ?? {};
+  const key = Object.keys(map).find((k) => normName(k) === normName(name));
+  const v = key === undefined ? undefined : map[key];
+  if (typeof v === 'number') return v > 0 ? v : null;
+  return stapleQtyToShopping(v, findIngredient(source, name)?.shoppingUnit);
+}
+
+/** "2", "2 L", "500g", "1 cup" → a number in the shopping unit, or null. */
+export function stapleQtyToShopping(raw, unit) {
+  const m = String(raw ?? '').trim().match(/^([0-9.,/½¼¾⅓⅔⅛\s]+?)\s*([a-zA-Z]*)$/);
+  if (!m) return null;
+  const n = parseMeasureQty(m[1].replace(/,/g, '').trim());
+  if (n === null || !(n > 0)) return null;
+  const suffix = m[2].toLowerCase();
+  if (!suffix) return n;
+  if (unit === 'mL') {
+    if (suffix === 'ml') return n;
+    if (suffix === 'l') return n * 1000;
+    const measure = kitchenMeasure(m[2]);
+    if (measure) return n * MEASURE_ML[measure];
+  }
+  if (unit === 'g') {
+    if (suffix === 'g') return n;
+    if (suffix === 'kg') return n * 1000;
+  }
+  return null;
+}
+
+/** The staples, in the order they were added. */
+export function staplesOf(source) {
+  return (source.settings?.staples ?? []).map((name) => {
+    const ing = findIngredient(source, name);
+    return { name, qty: stapleQtyOf(source, name), unit: ing?.shoppingUnit ?? null, known: !!ing };
+  });
+}
+
+/** Add a staple, or change its amount. `qty` as typed: "2", "2 L", "500 g". */
+export function setStaple(source, name, qty) {
+  const next = structuredClone(source);
+  const ing = findIngredient(next, name);
+  if (!ing) return { error: `Pick "${name.trim()}" from the ingredient list — staples have to be ingredients the list knows how to buy.` };
+  const n = stapleQtyToShopping(qty, ing.shoppingUnit);
+  if (String(qty ?? '').trim() && n === null) {
+    return { error: `"${qty}" isn't an amount in ${ing.shoppingUnit === 'qty' || !ing.shoppingUnit ? 'items' : ing.shoppingUnit}.` };
+  }
+  const settings = settingsOf(next);
+  const staples = Array.isArray(settings.staples) ? settings.staples : (settings.staples = []);
+  if (!staples.some((s) => normName(s) === normName(ing.name))) staples.push(ing.name);
+  const map = settings.stapleQty && typeof settings.stapleQty === 'object' ? settings.stapleQty : (settings.stapleQty = {});
+  for (const k of Object.keys(map)) if (normName(k) === normName(ing.name)) delete map[k];
+  if (n !== null) map[ing.name] = n;
+  return { source: next };
+}
+
+export function removeStaple(source, name) {
+  const next = structuredClone(source);
+  const settings = settingsOf(next);
+  settings.staples = (settings.staples ?? []).filter((s) => normName(s) !== normName(name));
+  const map = settings.stapleQty ?? {};
+  for (const k of Object.keys(map)) if (normName(k) === normName(name)) delete map[k];
+  return { source: next };
+}
+
+/** The household's shared switches, as the earlier app stores them. */
+export const featureOn = (source, key) => !!source.settings?.features?.[key];
+
+export function setFeature(source, key, on) {
+  const next = structuredClone(source);
+  const settings = settingsOf(next);
+  settings.features = { ...(settings.features ?? {}), [key]: !!on };
+  return { source: next };
 }

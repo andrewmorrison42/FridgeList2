@@ -5,7 +5,7 @@
 // never served from here — a cached copy of someone's shopping list is exactly
 // the "stale data presented as current" that FR-SYNC-2 forbids.
 
-const CACHE = 'fridgelist-v2';
+const CACHE = 'fridgelist-v3';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg',
   './src/ui/styles.css', './src/ui/main.js', './src/ui/app.js', './src/ui/dom.js',
@@ -15,12 +15,17 @@ const SHELL = [
   './src/core/shop.js', './src/core/library.js', './src/core/recipes-format.js',
   './src/data/storage.js', './src/data/sync.js', './src/data/presence.js',
   './src/data/persist.js', './src/data/onedrive.js', './src/data/auth.js', './src/data/recipes.js',
+  './src/version.js',
   // The starter recipes, for a device not yet connected to OneDrive.
   './data/recipes-data.reviewed.json',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // `reload`: straight from the site, not the browser's copy, which GitHub
+  // Pages lets it keep for up to ten minutes.
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -38,8 +43,15 @@ self.addEventListener('fetch', (e) => {
 
   // Network first, so an updated app is picked up; cache is the fallback that
   // makes the app work in a dead spot.
+  //
+  // `no-cache` makes the browser check with the site each time (a 304 when
+  // nothing changed). Without it, GitHub Pages' ten-minute cache headers let
+  // the browser hand back old files after an update — or a mix of old and new.
+  const fresh = e.request.mode === 'navigate'
+    ? new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' })
+    : new Request(e.request, { cache: 'no-cache' });
   e.respondWith(
-    fetch(e.request)
+    fetch(fresh)
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});

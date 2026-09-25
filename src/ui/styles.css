@@ -178,3 +178,4 @@ nav button.on { color: var(--accent); font-weight: 650; box-shadow: inset 0 2px 
 .ing-row .unit-fixed { flex: 0 0 5.5em; color: var(--muted); font-size: .88rem; padding-left: 4px; }
 .ing-row .ing-desc { flex: 1 1 6em; min-width: 0; }
 .ing-row .ghost { flex: none; }
+.version { color: var(--muted); font-size: .84rem; font-variant-numeric: tabular-nums; margin-top: 0; }

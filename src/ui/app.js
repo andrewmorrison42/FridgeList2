@@ -19,6 +19,7 @@ import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
 import { openLocal, deviceIdentity, local } from '../data/persist.js';
 import { createRecipeSource } from '../data/recipes.js';
+import { VERSION, RELEASED } from '../version.js';
 
 const SEED = 'data/recipes-data.reviewed.json';
 
@@ -99,6 +100,7 @@ export async function createApp({ storage } = {}) {
 
   const app = {
     identity, store, sync, presence, storage, config, auth, recipes,
+    version: VERSION, released: RELEASED,
 
     get shop() { return currentShop(store.events); },
     get can() { return permissions(store.events); },

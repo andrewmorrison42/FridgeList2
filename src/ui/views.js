@@ -10,6 +10,7 @@ import { formatQuantity } from '../core/units.js';
 import { sinceLabel } from '../core/library.js';
 import { PLANNED, CARRIED, FLAGGED, COOKED } from '../core/carryover.js';
 import { refusal } from './status.js';
+import { editorView } from './editor.js';
 
 const STATUS_LABEL = { [PLANNED]: 'Planned', [CARRIED]: 'Carried over', [FLAGGED]: 'Needs a decision', [COOKED]: 'Cooked' };
 
@@ -170,27 +171,47 @@ export function waitListView(app, { onAction }) {
 
 // -- Recipes ----------------------------------------------------------------
 
+/** "2 ¼ cup", "300 g", "2" — as the cook measures it, not as the shop sells it. */
+function lineAmount(l, ing) {
+  if (l.displayUnit) return `${l.displayQty} ${l.displayUnit}`;
+  const unit = ing?.shoppingUnit && ing.shoppingUnit !== 'qty' ? ` ${ing.shoppingUnit}` : '';
+  return `${l.quantity}${unit}`;
+}
+
 export function recipesView(app, { onAction }) {
+  if (app.ui.draft) return editorView(app, { onAction });
+
   const { recipes, ingredients } = app.library;
   const history = app.history;
   const open = app.ui.openRecipe;
   const search = app.ui.recipeSearch ?? '';
+  const rs = app.recipes.status();
 
   if (open && recipes.has(open)) {
     const r = recipes.get(open);
+    let section = null;
     return h('section', {},
-      h('button', { onClick: () => onAction('openRecipe', null) }, '← All recipes'),
+      h('div', { class: 'actions' },
+        h('button', { onClick: () => onAction('openRecipe', null) }, '← All recipes'),
+        h('button', { onClick: () => onAction('editRecipe', r.id) }, 'Edit'),
+      ),
       h('h1', {}, r.name),
       h('p', { class: 'hint' }, `Serves ${r.servings} · last chosen ${sinceLabel(history.get(r.id))}`),
       h('h2', {}, 'Ingredients'),
-      h('ul', {}, (r.lines ?? []).map((l) => h('li', {},
-        `${l.displayQty ?? l.quantity} ${l.displayUnit ?? l.cookingUnit ?? ''} `,
-        ingredients.get(l.ingredientId)?.name ?? l.ingredientId,
-      ))),
+      h('ul', {}, (r.lines ?? []).map((l) => {
+        const ing = ingredients.get(l.ingredientId);
+        const heading = l.section && l.section !== section ? h('h3', {}, l.section) : null;
+        section = l.section;
+        return [heading, h('li', {},
+          h('span', { class: 'grow' }, `${lineAmount(l, ing)} ${ing?.name ?? l.ingredientId}`,
+            l.descriptor && h('small', {}, `, ${l.descriptor}`)),
+        )];
+      })),
       r.method?.length > 0 && h('div', {},
         h('h2', {}, 'Method'),
         h('ol', {}, r.method.map((step) => h('li', {}, step))),
       ),
+      r.notes && h('div', {}, h('h2', {}, 'Notes'), h('p', {}, r.notes)),
     );
   }
 
@@ -200,7 +221,15 @@ export function recipesView(app, { onAction }) {
     .slice(0, 80);
 
   return h('section', {},
-    h('h1', {}, 'Recipes'),
+    h('div', { class: 'title-row' },
+      h('h1', {}, 'Recipes'),
+      app.recipes.raw && h('button', { onClick: () => onAction('newRecipe') }, '+ New recipe'),
+    ),
+    // Never show a saved copy as if it were current (FR-SYNC-2).
+    rs.state === 'error' && h('p', { class: 'warn-text' },
+      `Showing the copy saved on this device — couldn't check ${rs.path} for changes.`),
+    rs.state === 'missing' && h('p', { class: 'warn-text' },
+      `There is no recipe file at ${rs.path}. See Setup.`),
     h('input', {
       type: 'search', placeholder: `Search ${recipes.size} recipes`, value: search,
       onInput: (e) => onAction('recipeSearch', e.target.value),

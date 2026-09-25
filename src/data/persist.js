@@ -10,23 +10,33 @@
 
 const DB = 'fridgelist';
 const STORE = 'events';
+const FILES = 'files';        // the last copy seen of a shared file, e.g. the recipes
 
 export async function openLocal() {
   if (typeof indexedDB === 'undefined') return memoryFallback();
   try {
     const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB, 1);
+      const req = indexedDB.open(DB, 2);
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains(STORE)) {
           req.result.createObjectStore(STORE, { keyPath: 'id' });
         }
+        if (!req.result.objectStoreNames.contains(FILES)) req.result.createObjectStore(FILES);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
 
-    const tx = (mode) => db.transaction(STORE, mode).objectStore(STORE);
+    const tx = (mode, name = STORE) => db.transaction(name, mode).objectStore(name);
+    const done = (req) => new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
     return {
+      files: {
+        get: (key) => done(tx('readonly', FILES).get(key)),
+        set: (key, value) => done(tx('readwrite', FILES).put(value, key)),
+      },
       async all() {
         return new Promise((resolve, reject) => {
           const req = tx('readonly').getAll();
@@ -53,7 +63,9 @@ export async function openLocal() {
 
 function memoryFallback() {
   const events = new Map();
+  const files = new Map();
   return {
+    files: { async get(k) { return files.get(k); }, async set(k, v) { files.set(k, v); } },
     async all() { return [...events.values()]; },
     async put(list) { for (const e of [].concat(list)) events.set(e.id, e); },
     async clear() { events.clear(); },

@@ -969,6 +969,31 @@ is a decision no property test is watching.
 
 ## 12. Migration from existing data
 
+> **Revised 2026-09-25.** Recipes are no longer imported into the event log.
+> Both versions of the app run side by side during handover, and the household
+> needs recipes editable in either, so the app now reads the household's
+> `recipes-data.json` directly and edits it in place — the same file, in the
+> same format, that the earlier app uses (`src/data/recipes.js`,
+> `src/core/recipes-format.js`). Which file is set per device in Setup. The
+> conversion below still runs, in the browser, on every read.
+>
+> The file is not one of this app's per-device files, so the §4 rule that no
+> device writes another's file cannot hold for it. What holds instead: a save
+> re-reads the file, applies one recipe's edit to what is there now, and
+> writes only if the file is unchanged since that read (If-Match), retrying
+> otherwise. An edit to a different recipe always survives; a concurrent edit
+> to the same recipe is refused, not overwritten. This app never overwrites a
+> change it has not seen. The earlier app does: on a conflict it re-fetches
+> the eTag and writes its whole copy, so an earlier-app save within ~20 s of a
+> save here can undo it. Hence the handover rule: edit recipes in one app at a
+> time. Recipes are last-save-wins by nature (§9), and none of this touches
+> FR-SYNC-1, which is about ticks and selections in the event log.
+>
+> Correction found at the same time: `quantity` in this format is already in
+> the shopping unit, and `displayUnit` is only the cook's measure. The import
+> had treated `displayUnit` as a cooking unit to convert from, which
+> multiplied 2,457 lines by the cup/spoon factor a second time.
+
 A one-off Node script, `tools/import.js`, run once by the maintainer, producing
 an initial snapshot uploaded to `state/snapshot/`. Not part of the app, not
 shipped to devices. Input: the household's existing `recipes-data.json`,
@@ -1006,7 +1031,7 @@ Two findings from that review bear on the design rather than on the data:
 | Duplicate names | 452 entries, 450 distinct names — but the duplicates (*Mint*, *Tahini*) are **not** the same thing: one Mint is fresh (Vegetables aisle), the other dried (Spices). They must be disambiguated by hand before the import assigns ids, not merged. See `data/DATA-REVIEW.md` §2 |
 | Aisle casing | Merge `Baking`/`baking`, `Biscuits`/`biscuits`, `Freezer`/`freezer`, `International`/`international`. 26 values → 22 |
 | Quantities | 1,269 of 5,561 are strings, the rest numbers. Coerce to number; fail loudly on anything unparseable |
-| Units | `unit` is the shopping unit; `displayUnit` the cooking unit. Absent on 3,104 lines, meaning cooked and shopped in the same unit — no conversion, which satisfies FR-ING-1 trivially |
+| Units | `unit` is the shopping unit and `quantity` is already in it; `displayQty`/`displayUnit` are only how the cook measures it (cup = 250 mL, TBsp = 20, tsp = 5, 1 g = 1 mL). So no line needs converting — see the revision note above |
 | Staples | From `settings.staples` + `settings.stapleQty` onto the ingredient (§9) |
 | Trip history | **Recipes selected and timestamp only** (Round 6); line detail discarded. Two-year cut applied |
 | Anomalies | One ingredient has an empty shopping unit — **flagged in a report, not auto-fixed** |

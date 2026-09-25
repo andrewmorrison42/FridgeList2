@@ -6,7 +6,7 @@ import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
 import { connectView } from './connect.js';
-import { createMemoryStorage } from '../data/storage.js';
+import { recipeToDraft, blankRow, unitChoices, rebaseDraft } from '../core/recipes-format.js';
 
 const TABS = [
   ['list', 'List', listView],
@@ -15,19 +15,6 @@ const TABS = [
   ['recipes', 'Recipes', recipesView],
   ['settings', 'Setup', connectView],
 ];
-
-/** First run, or an explicit reload: bring in the imported library (§12). */
-export async function loadLibraryInto(app) {
-  try {
-    const res = await fetch('data/library.json');
-    if (!res.ok) return false;
-    await app.loadLibrary(await res.json());
-    await app.refresh();
-    return true;
-  } catch {
-    return false;    // the app runs without a library; it just has nothing to plan
-  }
-}
 
 export async function mount(root, { storage } = {}) {
   const app = await createApp({ storage });
@@ -77,8 +64,48 @@ export async function mount(root, { storage } = {}) {
         catch (err) { app.config.authError = err.message; }
         break;
       case 'signOut':    app.disconnect(); location.reload(); break;
-      case 'syncNow':    await app.refresh(); break;
-      case 'reloadLibrary': await loadLibraryInto(app); break;
+      case 'syncNow':    await app.refresh({ force: true }); break;
+      case 'recipesFile':
+        // A different file is a different recipe book: start again on it.
+        app.setConfig('recipesFile', args[0]);
+        location.reload();
+        return;
+      case 'recipesCheck':  await app.recipes.refresh({ force: true }); break;
+      case 'recipesCreate':
+        try { await app.recipes.createFromSeed(); }
+        catch (err) { app.ui.recipesError = err.message; }
+        break;
+
+      // -- the recipe editor (editor.js) --
+      case 'editRecipe':  app.ui.draft = recipeToDraft(app.recipes.raw, args[0]); window.scrollTo(0, 0); break;
+      case 'newRecipe':   app.ui.draft = recipeToDraft(app.recipes.raw, null); app.ui.draft.rows.push(blankRow(app.ui.draft)); break;
+      case 'draftCancel': app.ui.draft = null; break;
+      case 'draftAddRow': app.ui.draft.rows.push(blankRow(app.ui.draft)); break;
+      case 'draftRemoveRow': app.ui.draft.rows.splice(args[0], 1); break;
+      case 'draftRowName': {
+        // Settle the unit to one this ingredient allows.
+        const row = app.ui.draft.rows[args[0]];
+        const choice = unitChoices(app.recipes.raw, row.name);
+        if (choice.kind === 'choose' && !choice.options.includes(row.unit)) row.unit = choice.options[0];
+        if (choice.kind === 'fixed') row.unit = choice.unit;
+        break;
+      }
+      case 'draftReopen': app.ui.draft = recipeToDraft(app.recipes.raw, app.ui.draft.id); break;
+      case 'draftOverride':
+        app.ui.draft = rebaseDraft(app.ui.draft, app.recipes.raw);
+        return onAction('draftSave');
+      case 'draftSave': {
+        const d = app.ui.draft;
+        d.saving = true; d.error = null; d.conflict = false;
+        render();
+        const out = await app.saveRecipe(d);
+        d.saving = false;
+        if (out.conflict) d.conflict = true;
+        else if (out.error) d.error = out.error;
+        else { app.ui.draft = null; app.ui.openRecipe = out.recipeId; }
+        window.scrollTo(0, 0);
+        break;
+      }
     }
     render();
   };
@@ -103,8 +130,14 @@ export async function mount(root, { storage } = {}) {
   // mount, and there is no pull-to-refresh: a device holding current data that
   // shows stale data is, to the person holding it, one that never received the
   // change. FR-SYNC-7.
-  app.store.subscribe(render);
-  app.start(render);
+  //
+  // The one exception is the recipe editor on screen: re-rendering would take the
+  // cursor from someone typing. The editor shows no shared state, and the rest
+  // catches up the moment it closes.
+  const background = () => { if (!(app.ui.draft && app.ui.tab === 'recipes')) render(); };
+  app.store.subscribe(background);
+  app.recipes.subscribe(background);
+  app.start(background);
   render();
 
   window.addEventListener('hashchange', () => onAction('tab', location.hash.slice(1) || 'list'));

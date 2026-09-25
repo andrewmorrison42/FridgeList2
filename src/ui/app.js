@@ -259,7 +259,9 @@ export async function createApp({ storage } = {}) {
     start(onTick = () => {}) {
       const loop = async () => {
         try { await app.refresh(); } catch { /* status() reports it */ }
-        onTick();
+        // A screen that fails to draw must not stop syncing: the next change
+        // that arrives may be the one that lets it draw.
+        try { onTick(); } catch (err) { console.error(err); }
         timer = setTimeout(loop, sync.intervalMs());
       };
       loop();

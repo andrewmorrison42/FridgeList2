@@ -140,6 +140,7 @@ export function createFakeGraph() {
         return json(view(made), 201);
       }
       if (h['if-none-match'] === '*') return json({ error: { code: 'nameAlreadyExists' } }, 412);
+      if (u.searchParams.get('@microsoft.graph.conflictBehavior') === 'fail') return json({ error: { code: 'nameAlreadyExists' } }, 409);
       if (h['if-match'] && h['if-match'] !== item.eTag) return json({ error: { code: 'preconditionFailed' } }, 412);
       item.content = body; item.eTag = etag(); touch(item.id);
       return json(view(item));

@@ -219,3 +219,43 @@ describe('more than one folder of the same name', () => {
     expect(await drive.folder('/FridgeList')).toMatchObject({ via: 'shared-with-me' });
   });
 });
+
+describe('changes made before a reload', () => {
+  // The second real trial: a menu picked on Dad's phone never reached Mum's.
+  // The upload queue lived in memory, so anything not uploaded before the
+  // app closed stayed on that phone for ever.
+  it('are uploaded when the app starts again, and reach the other phone', async () => {
+    const { g } = household();
+    const dadStorage = createOneDriveStorage({ drive: driveFor(g, 'dad'), root: '/FridgeList' });
+    const device = createDevice('dad-phone');
+    const store = createStore();
+    const first = createSync({ storage: dadStorage, store, deviceId: 'dad-phone' });
+    first.record(device.observe(store.events).emit('menu.selection', { recipeId: 'risotto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft'));
+    // The app closes before the upload happens.
+
+    const reopened = createSync({ storage: dadStorage, store: createStore(store.events), deviceId: 'dad-phone' });
+    expect(reopened.status().unsent).toBe(1);
+    await reopened.tick();
+    expect(reopened.status().unsent).toBe(0);
+
+    const mumStore = createStore();
+    const mum = createSync({ storage: createOneDriveStorage({ drive: driveFor(g, 'theo'), root: '/FridgeList' }), store: mumStore, deviceId: 'mum-phone' });
+    await mum.tick();
+    expect(mumStore.events.some((e) => e.type === 'menu.selection' && e.payload.recipeId === 'risotto')).toBe(true);
+  });
+
+  it('a failed upload is reported, not hidden behind "synced"', async () => {
+    const { staleness } = await import('../src/data/presence.js');
+    const { g } = household();
+    const broken = createDrive({ getToken: async () => 'dad', fetchImpl: (url, init) =>
+      (init?.method === 'PUT' ? Promise.resolve(new Response('{"error":{"code":"quotaLimitReached"}}', { status: 507 })) : g.fetch(url, init)) });
+    const device = createDevice('dad-phone');
+    const store = createStore();
+    const sync = createSync({ storage: createOneDriveStorage({ drive: broken, root: '/FridgeList' }), store, deviceId: 'dad-phone' });
+    sync.record(device.observe(store.events).emit('menu.selection', { recipeId: 'risotto', present: true, servings: 4, plannedFor: 'shop-0001' }, 'draft'));
+    await sync.tick();
+    const s = staleness(sync.status(), []);
+    expect(s.selfText).toBe('1 change not saved to OneDrive');
+    expect(s.warnText).toMatch(/Not saved to OneDrive yet.*507/);
+  });
+});

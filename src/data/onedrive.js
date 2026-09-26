@@ -420,7 +420,11 @@ export function createOneDriveFiles({ drive }) {
       const headers = { 'Content-Type': 'application/json' };
       if (ifMatch) headers['If-Match'] = ifMatch;
       if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
-      const res = await drive.call(underWith(ref, name, '/content'), { method: 'PUT', headers, body: content });
+      // Creating (If-None-Match: *) also asks OneDrive itself to refuse if the
+      // name is taken: a header alone is not something to stake the family's
+      // recipe book on.
+      const url = underWith(ref, name, '/content') + (ifNoneMatch ? '?@microsoft.graph.conflictBehavior=fail' : '');
+      const res = await drive.call(url, { method: 'PUT', headers, body: content });
       if (res.status === 412 || res.status === 409) return CONFLICT;
       if (!res.ok) throw await drive.fail('save', res);
       return { etag: (await res.json()).eTag };

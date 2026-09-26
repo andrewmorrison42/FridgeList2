@@ -318,6 +318,12 @@ function folderStatus(app, { onAction }) {
       h('p', { class: 'ok' }, f.shared
         ? `Connected · ${path}, shared by ${f.owner ?? 'another account'}`
         : `Connected · ${path} in this account's OneDrive`),
+      f.others > 0 && f.via === 'chosen' && h('p', { class: 'hint' },
+        `Chosen on this phone. This account can see ${f.others} other ${path.replace(/^\//, '')} folder${f.others > 1 ? 's' : ''} too.`),
+      f.others > 0 && f.via !== 'chosen' && h('p', { class: 'warn-text' },
+        `This account can also see ${f.others} other ${path.replace(/^\//, '')} folder${f.others > 1 ? 's' : ''}. `
+        + 'If this phone\'s recipes or list do not match the others\', it may be using the wrong one.'),
+      folderChooser(app, { onAction }),
       f.alsoShared && h('div', { class: 'refusal' },
         h('p', {}, `${f.alsoShared} has also shared a ${path.replace(/^\//, '')} folder with this account, but this phone is using one of its own — so nobody else sees what it does.`),
         h('p', { class: 'hint' }, `On onedrive.com, rename or delete this account's own ${path.replace(/^\//, '')} folder, add a shortcut to the shared one (Shared → the folder → Add shortcut to My files), then Check again.`),
@@ -326,4 +332,27 @@ function folderStatus(app, { onAction }) {
     );
   }
   return reconsent || null;
+}
+
+/** Every folder of the household folder's name this account can see, to pick the right one. */
+function folderChooser(app, { onAction }) {
+  const fl = app.ui.folderList;
+  if (!fl) {
+    return h('div', { class: 'actions' },
+      h('button', { onClick: () => onAction('folderList') }, 'Show the folders this account can see'));
+  }
+  if (fl.loading) return h('p', { class: 'hint' }, 'Looking at each folder…');
+  if (fl.error) return h('p', { class: 'warn-text' }, `Couldn't list them: ${fl.error}`);
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '?');
+  return h('ul', { class: 'folders' }, fl.items.map((c) => h('li', { class: c.current ? 'current' : '' },
+    h('div', { class: 'grow' },
+      h('strong', {}, c.owner ?? 'Unknown account'),
+      h('small', {}, [
+        c.shared ? ' — shared with this account' : ' — in this account\'s own OneDrive',
+        c.recipes === null ? '' : c.recipes === 0 ? ' · no recipe file' : ` · ${c.recipes} recipes`,
+        ` · changed ${when(c.modified)}`,
+      ].join('')),
+    ),
+    c.current ? h('span', { class: 'ok' }, 'In use') : h('button', { onClick: () => onAction('folderChoose', c) }, 'Use this one'),
+  )));
 }

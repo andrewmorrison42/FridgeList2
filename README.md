@@ -100,7 +100,11 @@ app, it already does); they share it with the others:
 5. Give the device a **Name** ("Dad's phone") so the list can say who ticked what
 
 Setup then says which folder the phone is using: *in this account's OneDrive*
-on the owner's phone, *shared by …* on everyone else's. If it cannot find one,
+on the owner's phone, *shared by …* on everyone else's. If an account can see
+more than one folder of that name — say one started from the starter recipes on
+another phone — Setup says so, and **Show the folders this account can see**
+lists each with its owner and recipe count, to choose the right one for that
+phone. If it cannot find one,
 it says so and shows these steps — it never quietly starts a folder of its own,
 which would give that phone a list nobody else sees. (There is a button to
 start a new folder, for a household setting up for the first time.)

@@ -59,7 +59,8 @@ export function createFakeGraph() {
   const notFound = () => json({ error: { code: 'itemNotFound' } }, 404);
 
   function view(item) {
-    const out = { id: item.id, name: item.name, eTag: item.eTag, parentReference: { driveId: item.driveId, id: item.parentId } };
+    const out = { id: item.id, name: item.name, eTag: item.eTag, parentReference: { driveId: item.driveId, id: item.parentId },
+      createdBy: { user: { displayName: drives.get(item.driveId).displayName } }, lastModifiedDateTime: item.modified ?? '2026-09-20T10:00:00Z' };
     if (item.folder) out.folder = { childCount: childrenOf(item.id).length };
     if (!item.folder && !item.shortcutTo) {
       out.file = {};
@@ -68,8 +69,7 @@ export function createFakeGraph() {
     }
     if (item.shortcutTo) {
       const t = items.get(item.shortcutTo);
-      out.remoteItem = { id: t.id, name: t.name, folder: {}, parentReference: { driveId: t.driveId },
-        shared: { owner: { user: { displayName: drives.get(t.driveId).displayName } } } };
+      out.remoteItem = { id: t.id, name: t.name, folder: {}, parentReference: { driveId: t.driveId } };
       delete out.file;
     }
     return out;
@@ -91,6 +91,7 @@ export function createFakeGraph() {
     // -- resolve the addressed item ---------------------------------------
     let base; let rest = '';
     let m;
+    if (path === '/me/drive') return json({ id: `drive-${person}` });
     if ((m = path.match(/^\/me\/drive\/sharedWithMe$/))) {
       const value = [...shares.entries()].filter(([, who]) => who.has(person))
         .map(([itemId]) => items.get(itemId)).map((t) => ({ id: `sw-${t.id}`, name: t.name, folder: {},

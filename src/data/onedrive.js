@@ -34,8 +34,13 @@ export class FolderNotFound extends Error {
  * through shortcuts. Shared by the storage and the recipe file, so a folder is
  * looked up once.
  */
-export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
+export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a), pins = {} }) {
   const folders = new Map();      // path → Promise<ref | null>
+  // A folder chosen by hand in Setup, by path: { driveId, itemId }. Used in
+  // preference to looking one up, for an account that can see more than one
+  // folder of that name — its own, and one or more shared with it.
+  const pinned = (path) => pins[`/${enc(path)}`] ?? null;
+  let myDriveId = null;
 
   async function call(url, init = {}) {
     const token = await getToken();
@@ -58,6 +63,16 @@ export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
    * has been shared with this account.
    */
   async function lookup(path) {
+    const pin = pinned(path);
+    if (pin) {
+      const res = await call(`/drives/${pin.driveId}/items/${pin.itemId}`);
+      if (res.ok) {
+        const mine = await ownDriveId();
+        return { driveId: pin.driveId, itemId: pin.itemId, shared: pin.driveId !== mine, owner: null, via: 'chosen' };
+      }
+      if (res.status !== 404 && res.status !== 403) throw await fail('read', res);
+      // Chosen folder gone, or no longer shared: look it up afresh.
+    }
     const segs = path.split('/').filter(Boolean);
     if (segs.length === 0) {
       const res = await call('/me/drive/root');
@@ -71,7 +86,7 @@ export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
       const res = await call(url);
       if (res.status === 404) {
         if (i === 0) {
-          const shared = await sharedWithMe(segs[0]);
+          const [shared] = await sharedWithMe(segs[0]);
           if (shared) { ref = shared; continue; }
         }
         return null;
@@ -85,14 +100,32 @@ export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
     return ref;
   }
 
-  /** Best effort only: Microsoft throttles this list and is retiring it. The shortcut is the way. */
+  /** Folders of this name shared with this account. Best effort only: Microsoft throttles this list and is retiring it. */
   async function sharedWithMe(name) {
     try {
       const res = await call('/me/drive/sharedWithMe');
-      if (!res.ok) return null;
-      const hit = ((await res.json()).value ?? []).find((i) => i.name === name && (i.folder || i.remoteItem?.folder) && i.remoteItem);
-      return hit ? refOf(hit, 'shared-with-me') : null;
-    } catch { return null; }
+      if (!res.ok) return [];
+      return ((await res.json()).value ?? [])
+        .filter((i) => i.name === name && (i.folder || i.remoteItem?.folder) && i.remoteItem)
+        .map((i) => refOf(i, 'shared-with-me'));
+    } catch { return []; }
+  }
+
+  async function ownDriveId() {
+    if (!myDriveId) {
+      const res = await call('/me/drive?$select=id');
+      if (!res.ok) throw await fail('read', res);
+      myDriveId = (await res.json()).id;
+    }
+    return myDriveId;
+  }
+
+  /** Who made a folder, and when it last changed — for telling two of the same name apart. */
+  async function detailsOf(ref) {
+    const res = await call(`/drives/${ref.driveId}/items/${ref.itemId}?$select=name,createdBy,lastModifiedDateTime`);
+    if (!res.ok) return { owner: ref.owner, modified: null };
+    const j = await res.json();
+    return { owner: ref.owner ?? j.createdBy?.user?.displayName ?? null, modified: j.lastModifiedDateTime ?? null };
   }
 
   const drive = {
@@ -110,6 +143,43 @@ export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
     forget() { folders.clear(); },
 
     /** Make a top-level folder in this account's own OneDrive. Only ever on request. */
+    /**
+     * Every folder of this name the account can see — its own (or its
+     * shortcut's target), and each one shared with it — with who made it,
+     * when it last changed, and how many recipes its recipe file holds. For
+     * choosing between them in Setup.
+     */
+    async candidates(path, { counts = true } = {}) {
+      const name = path.split('/').filter(Boolean)[0];
+      const found = [];
+      const res = await call(`/me/drive/root:/${encodeURIComponent(name)}`);
+      if (res.ok) {
+        const item = await res.json();
+        if (item.folder || item.remoteItem?.folder) found.push(refOf(item));
+      } else if (res.status !== 404) throw await fail('read', res);
+      found.push(...await sharedWithMe(name));
+      const current = await drive.folder(path).catch(() => null);
+      const seen = new Set();
+      const out = [];
+      for (const ref of found) {
+        const key = `${ref.driveId}/${ref.itemId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const { owner, modified } = await detailsOf(ref);
+        let recipes = null;
+        if (counts) try {
+          const f = await call(`/drives/${ref.driveId}/items/${ref.itemId}:/recipes-data.json`);
+          if (f.ok) {
+            const text = await (await drive.download((await f.json())['@microsoft.graph.downloadUrl'])).text();
+            recipes = JSON.parse(text).recipes?.length ?? null;
+          } else if (f.status === 404) recipes = 0;
+        } catch { /* unknown */ }
+        out.push({ driveId: ref.driveId, itemId: ref.itemId, shared: ref.shared, via: ref.via, owner, modified, recipes,
+          current: !!current && current.driveId === ref.driveId && current.itemId === ref.itemId });
+      }
+      return out;
+    },
+
     async createFolder(path) {
       const segs = path.split('/').filter(Boolean);
       if (segs.length !== 1) throw new Error('Only a folder directly in your OneDrive can be created here — make it in OneDrive instead.');
@@ -126,14 +196,18 @@ export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
     async describe(path) {
       const ref = await drive.folder(path);
       if (!ref) return { found: false, path };
+      const { owner } = await detailsOf(ref);
       let alsoShared = null;
       if (!ref.shared) {
         // Using a folder of your own when the household's has been shared with
         // you is the classic wrong turn; say so.
-        const s = await sharedWithMe(path.split('/').filter(Boolean)[0]);
-        if (s) alsoShared = s.owner ?? 'someone';
+        const [s] = await sharedWithMe(path.split('/').filter(Boolean)[0]);
+        if (s) alsoShared = (await detailsOf(s)).owner ?? 'someone';
       }
-      return { found: true, path, shared: ref.shared, owner: ref.owner, via: ref.via, alsoShared };
+      // Another folder of the same name in view — the likeliest reason for a
+      // phone seeing a different recipe book from the rest.
+      const others = (await drive.candidates(path, { counts: false }).catch(() => [])).filter((c) => !c.current).length;
+      return { found: true, path, shared: ref.shared, owner, via: ref.via, alsoShared, others };
     },
   };
   return drive;

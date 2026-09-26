@@ -44,7 +44,7 @@ describe('finding the household folder', () => {
     const { g, folder } = household();
     const drive = driveFor(g, 'theo');
     const ref = await drive.folder('/FridgeList');
-    expect(ref).toMatchObject({ driveId: 'drive-dad', itemId: folder.id, shared: true, owner: 'Andrew', via: 'shortcut' });
+    expect(ref).toMatchObject({ driveId: 'drive-dad', itemId: folder.id, shared: true, via: 'shortcut' });
     expect(await drive.describe('/FridgeList')).toMatchObject({ found: true, shared: true, owner: 'Andrew' });
   });
 
@@ -168,5 +168,54 @@ describe('the recipe file, in the shared folder', () => {
     const { g } = household();
     const files = createOneDriveFiles({ drive: driveFor(g, 'greta') });
     await expect(files.stat('/FridgeList/recipes-data.json')).rejects.toBeInstanceOf(FolderNotFound);
+  });
+});
+
+describe('more than one folder of the same name', () => {
+  // What happened on the first real trial: Theo's account could see a
+  // FridgeList started from the starter recipes by another account, as well
+  // as the household's, and the app picked the wrong one.
+  function twoFolders() {
+    const g = createFakeGraph();
+    g.addPerson('dad', 'Andrew'); g.addPerson('greta', 'Greta'); g.addPerson('theo', 'Theo');
+    const greta = g.folder('greta', 'FridgeList');
+    g.file('greta', 'FridgeList/recipes-data.json', JSON.stringify({ recipes: new Array(638).fill({}), ingredients: [] }));
+    const dad = g.folder('dad', 'FridgeList');
+    g.file('dad', 'FridgeList/recipes-data.json', JSON.stringify({ recipes: new Array(670).fill({}), ingredients: [] }));
+    g.share(greta, 'theo');     // shared first, so it is the first one Microsoft lists
+    g.share(dad, 'theo');
+    return { g, greta, dad };
+  }
+
+  it('lists every one, with who made it and how many recipes it holds', async () => {
+    const { g, greta, dad } = twoFolders();
+    const list = await driveFor(g, 'theo').candidates('/FridgeList');
+    expect(list.map((c) => [c.itemId, c.owner, c.recipes])).toEqual([[greta.id, 'Greta', 638], [dad.id, 'Andrew', 670]]);
+    expect(list.find((c) => c.current).itemId).toBe(greta.id);
+  });
+
+  it('says there are others when describing the one in use, and names its owner even through a shortcut', async () => {
+    const { g, dad } = twoFolders();
+    expect(await driveFor(g, 'theo').describe('/FridgeList')).toMatchObject({ found: true, owner: 'Greta', others: 1 });
+    g.shortcut('theo', 'FridgeList', dad);
+    expect(await driveFor(g, 'theo').describe('/FridgeList')).toMatchObject({ found: true, owner: 'Andrew', via: 'shortcut' });
+  });
+
+  it('uses the one chosen, for the logs and the recipe file alike', async () => {
+    const { g, dad } = twoFolders();
+    const drive = createDrive({ getToken: async () => 'theo', fetchImpl: g.fetch,
+      pins: { '/FridgeList': { driveId: 'drive-dad', itemId: dad.id } } });
+    expect(await drive.folder('/FridgeList')).toMatchObject({ itemId: dad.id, shared: true, via: 'chosen' });
+    const got = await createOneDriveFiles({ drive }).read('/FridgeList/recipes-data.json');
+    expect(JSON.parse(got.content).recipes).toHaveLength(670);
+    await createOneDriveStorage({ drive, root: '/FridgeList' }).write('state/log/theo.jsonl', 'x');
+    expect(g.read('dad', 'FridgeList/state/log/theo.jsonl')).toBe('x');
+  });
+
+  it('falls back to looking it up if the chosen folder is no longer shared', async () => {
+    const { g } = twoFolders();
+    const drive = createDrive({ getToken: async () => 'theo', fetchImpl: g.fetch,
+      pins: { '/FridgeList': { driveId: 'drive-dad', itemId: 'gone' } } });
+    expect(await drive.folder('/FridgeList')).toMatchObject({ via: 'shared-with-me' });
   });
 });

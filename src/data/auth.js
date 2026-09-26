@@ -10,7 +10,14 @@
 // (D7) genuinely true rather than nearly true.
 
 const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
-const SCOPES = 'Files.ReadWrite offline_access User.Read';
+// Files.ReadWrite.All, not Files.ReadWrite: each person signs in as
+// themselves, and the household folder is in one person's OneDrive, shared
+// with the rest. Files.ReadWrite reaches only files the signer owns, so
+// everyone but the owner could not open it. The app itself only ever touches
+// the one folder (data/onedrive.js); the earlier app asks for the same.
+const SCOPES = 'Files.ReadWrite.All offline_access User.Read';
+// What a sign-in from before 0.7.0 was granted, and so what its refresh may ask for.
+const OLD_SCOPES = 'Files.ReadWrite offline_access User.Read';
 const KEY = 'fridgelist.auth';
 
 const load = () => { try { return JSON.parse(sessionStorage.getItem(KEY) ?? localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
@@ -38,13 +45,18 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
     });
     if (!res.ok) throw new Error(`sign-in failed (${res.status}): ${await res.text()}`);
     const t = await res.json();
-    tokens = { ...t, expiresAt: Date.now() + (t.expires_in - 120) * 1000 };
+    // A refresh keeps asking for what was granted: asking for more than that
+    // would fail until the person signs in again and agrees to it.
+    tokens = { ...t, requested: body.scope ?? tokens?.requested ?? OLD_SCOPES, expiresAt: Date.now() + (t.expires_in - 120) * 1000 };
     save(tokens);
     return tokens;
   }
 
   return {
     get connected() { return !!tokens?.refresh_token; },
+
+    /** Signed in before shared folders were supported: sign in again to reach one. */
+    get needsSharedAccess() { return !!tokens?.refresh_token && !(tokens.requested ?? OLD_SCOPES).includes('Files.ReadWrite.All'); },
 
     /** Send the browser to Microsoft. Returns to `redirectUri` with a code. */
     async signIn() {
@@ -53,6 +65,9 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
       const params = new URLSearchParams({
         client_id: clientId, response_type: 'code', redirect_uri: redirectUri,
         scope: SCOPES, code_challenge: await challengeFor(verifier), code_challenge_method: 'S256',
+        // Always ask which account: a phone already signed in to one Microsoft
+        // account (a child's own, say) must be able to choose.
+        prompt: 'select_account',
       });
       location.assign(`${AUTHORITY}/authorize?${params}`);
     },
@@ -71,7 +86,7 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
       history.replaceState({}, '', redirectUri);        // keep the code out of history
       if (!verifier) throw new Error('sign-in could not be completed on this device');
       sessionStorage.removeItem('fridgelist.pkce');
-      await exchange({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier });
+      await exchange({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier, scope: SCOPES });
       return true;
     },
 
@@ -82,7 +97,7 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
     async getToken() {
       if (!tokens?.refresh_token) throw new Error('not signed in');
       if (Date.now() < (tokens.expiresAt ?? 0)) return tokens.access_token;
-      await exchange({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, scope: SCOPES });
+      await exchange({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, scope: tokens.requested ?? OLD_SCOPES });
       return tokens.access_token;
     },
 

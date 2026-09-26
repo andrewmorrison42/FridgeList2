@@ -89,6 +89,10 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
 
     let applied = 0;
     for (const path of changed) {
+      // Only the phones' logs. The folder is shared with the earlier app and
+      // holds its files too (recipes-data.json, shopping-list.json, backups),
+      // and a snapshot duplicates a log that is rewritten alongside it.
+      if (!/(^|\/)log\/[^/]+\.jsonl$/.test(path)) continue;
       if (path.endsWith(`${deviceId}.jsonl`)) continue;      // our own writing
       if (path.includes('/presence/')) continue;             // handled by presence.js
       try {

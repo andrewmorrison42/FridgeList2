@@ -13,7 +13,7 @@ import { selections, carryOverTransitions } from '../core/carryover.js';
 import { generate, freeTextId } from '../core/generate.js';
 import { createDevice } from '../core/events.js';
 import { createMemoryStorage } from '../data/storage.js';
-import { createOneDriveStorage, createOneDriveFiles } from '../data/onedrive.js';
+import { createDrive, createOneDriveStorage, createOneDriveFiles } from '../data/onedrive.js';
 import { createAuth } from '../data/auth.js';
 import { createSync } from '../data/sync.js';
 import { createPresence, staleness } from '../data/presence.js';
@@ -51,6 +51,7 @@ export async function createApp({ storage } = {}) {
   // which backend it has (§15.2). Without a client id the app runs entirely on
   // this device, which is also how it degrades if the backend is unreachable.
   let auth = null;
+  let drive = null;
   if (!storage && config.clientId) {
     auth = createAuth({ clientId: config.clientId });
     try {
@@ -59,7 +60,11 @@ export async function createApp({ storage } = {}) {
       config.authError = err.message;
     }
     if (auth.connected) {
-      storage = createOneDriveStorage({ getToken: () => auth.getToken(), root: config.folder });
+      // One view of OneDrive for this account, shared by the logs and the
+      // recipe file, so the household folder is found once — through the
+      // shortcut to it if it is someone else's (data/onedrive.js).
+      drive = createDrive({ getToken: () => auth.getToken() });
+      storage = createOneDriveStorage({ drive, root: config.folder });
       config.storageMode = 'onedrive';
     }
   }
@@ -73,7 +78,7 @@ export async function createApp({ storage } = {}) {
   // recipes-data.json when connected, shared with the earlier app; otherwise a
   // copy on this device started from the seed.
   const recipes = createRecipeSource({
-    file: auth?.connected ? createOneDriveFiles({ getToken: () => auth.getToken() }) : null,
+    file: drive ? createOneDriveFiles({ drive }) : null,
     path: recipesPath(config),
     cache: persisted.files,
     fetchSeed: async () => {
@@ -101,7 +106,9 @@ export async function createApp({ storage } = {}) {
   };
 
   const app = {
-    identity, store, sync, presence, storage, config, auth, recipes,
+    identity, store, sync, presence, storage, config, auth, recipes, drive,
+    /** Which folder this account reaches, for Setup: { state, found, shared, owner, alsoShared, error }. */
+    folder: { state: drive ? 'checking' : 'none' },
     version: VERSION, released: RELEASED,
     wake: createWakeLock(),
 
@@ -292,6 +299,27 @@ export async function createApp({ storage } = {}) {
     setConfig(key, value) {
       local.set(key, value);
       config[key] = value;
+    },
+
+    /** Look (again) for the household folder, through a shortcut if need be. */
+    async checkFolder({ refresh = true } = {}) {
+      if (!drive) return app.folder;
+      drive.forget();
+      app.folder = { state: 'checking' };
+      try {
+        const d = await drive.describe(config.folder);
+        app.folder = { state: d.found ? 'found' : 'missing', ...d };
+      } catch (err) {
+        app.folder = { state: 'error', error: err.message };
+      }
+      if (refresh) await app.refresh({ force: true }).catch(() => {});
+      return app.folder;
+    },
+
+    /** Start a household folder in this account's own OneDrive — only when asked. */
+    async createFolder() {
+      await drive.createFolder(config.folder);
+      return app.checkFolder();
     },
 
     /** Send this device to Microsoft to sign in. Returns here afterwards. */

@@ -42,7 +42,9 @@ export function generate(library, { events, shopId, waitList = [], dismissed = n
     }
     const line = bucket.get(ingredientId);
     line.qty += qty;
-    line.sources.push(source);
+    // Each reason keeps its own share, so the list can say what it is for:
+    // "Risotto 500 mL · Chilli 250 mL" helps decide whether to buy it.
+    line.sources.push({ ...source, qty });
   };
 
   const linesOf = (sel) => {

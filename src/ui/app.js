@@ -100,9 +100,15 @@ export async function createApp({ storage } = {}) {
   let timer = null;
 
   /** Record events: local state and screen first, upload after (§7.1). */
+  let loop = null;               // the sync loop, once started
   const record = (events) => {
     device.observe(store.events);
-    return sync.record(events);
+    const out = sync.record(events);
+    // Send it now rather than at the next scheduled check, which while
+    // planning is a while off: "Menu is settled" should reach the others in
+    // seconds. Coalesced, so a burst of taps is one upload.
+    if (loop) { clearTimeout(timer); timer = setTimeout(loop, 400); }
+    return out;
   };
 
   const app = {
@@ -279,8 +285,13 @@ export async function createApp({ storage } = {}) {
 
     /** Poll fast while shopping, lazily otherwise (§7.3). */
     start(onTick = () => {}) {
-      const loop = async () => {
+      let running = false;
+      loop = async () => {
+        if (running) { clearTimeout(timer); timer = setTimeout(loop, 400); return; }   // one at a time
+        running = true;
+        clearTimeout(timer);
         try { await app.refresh(); } catch { /* status() reports it */ }
+        running = false;
         // A screen that fails to draw must not stop syncing: the next change
         // that arrives may be the one that lets it draw.
         try { onTick(); } catch (err) { console.error(err); }
@@ -289,7 +300,7 @@ export async function createApp({ storage } = {}) {
       loop();
     },
 
-    stop() { clearTimeout(timer); timer = null; },
+    stop() { clearTimeout(timer); timer = null; loop = null; },
 
     setNickname(name) {
       local.set('nickname', name);

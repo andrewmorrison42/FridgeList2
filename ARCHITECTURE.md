@@ -161,6 +161,26 @@ database, no scheduled job and nothing to keep alive.
 
 ### 3.3 Authentication
 
+> **Revised in 0.7.0 — A1 resolved: each person's own account.** The household
+> signs in as themselves; one person's OneDrive holds the folder, shared with
+> editing to the others, who each add a shortcut to it — as the earlier app
+> already worked. So the scope is `Files.ReadWrite.All` (a shared item is not
+> the signer's own), the sign-in always offers the account picker, and
+> `src/data/onedrive.js` resolves the folder through the shortcut (Graph's
+> path addressing does not follow one), falling back to *Shared with me*, and
+> addresses every file relative to the folder it found. A phone that finds no
+> folder says so and never creates one unasked. Nothing else in the design
+> changes: devices still write only their own files (§4), and "who ticked it"
+> is still the device nickname, not the account. The text below is the
+> original baseline.
+>
+> Found at the same time: Graph's delta reports items by name and parent id,
+> never by path, and the adapter had used the bare name as the path — so no
+> device had ever received another's changes. It now rebuilds paths from ids,
+> follows `nextLink` pages, and falls back to listing where delta is refused.
+> `test/fakes/graph.js` models these behaviours, and the storage contract runs
+> against the OneDrive adapter through it.
+
 A single shared Microsoft account, signed in on each device using the
 authorisation code flow with PKCE — the only flow appropriate for a public
 client with no secret. Scope: `Files.ReadWrite`, `offline_access`, `User.Read`.

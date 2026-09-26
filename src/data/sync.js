@@ -170,7 +170,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
    * seconds; a recipe edit at the kitchen table is not urgent. §7.3.
    */
   function intervalMs() {
-    return currentShop(store.events).phase === 'open' ? 3000 : 60000;
+    return currentShop(store.events).phase === 'open' ? 3000 : 15000;
   }
 
   return { record, push, pull, tick, status, intervalMs, maybeCompact, pathFor };

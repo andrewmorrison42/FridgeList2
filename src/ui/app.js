@@ -63,7 +63,7 @@ export async function createApp({ storage } = {}) {
       // One view of OneDrive for this account, shared by the logs and the
       // recipe file, so the household folder is found once — through the
       // shortcut to it if it is someone else's (data/onedrive.js).
-      drive = createDrive({ getToken: () => auth.getToken() });
+      drive = createDrive({ getToken: () => auth.getToken(), pins: local.get('folderPins', {}) });
       storage = createOneDriveStorage({ drive, root: config.folder });
       config.storageMode = 'onedrive';
     }
@@ -325,6 +325,19 @@ export async function createApp({ storage } = {}) {
       }
       if (refresh) await app.refresh({ force: true }).catch(() => {});
       return app.folder;
+    },
+
+    /** Every folder of the household folder's name this account can see, to choose from. */
+    folderCandidates() {
+      return drive.candidates(config.folder);
+    },
+
+    /** Use this folder from now on, on this phone. The recipe book and list change with it, so reload. */
+    chooseFolder(candidate) {
+      const pins = local.get('folderPins', {});
+      pins[`/${config.folder.split('/').filter(Boolean).join('/')}`] = { driveId: candidate.driveId, itemId: candidate.itemId };
+      local.set('folderPins', pins);
+      location.reload();
     },
 
     /** Start a household folder in this account's own OneDrive — only when asked. */

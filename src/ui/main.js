@@ -141,6 +141,17 @@ export async function mount(root, { storage } = {}) {
         return;
       case 'recipesCheck':  await app.recipes.refresh({ force: true }); break;
       case 'folderCheck':   await app.checkFolder(); break;
+      case 'folderList':
+        app.ui.folderList = { loading: true };
+        render();
+        try { app.ui.folderList = { items: await app.folderCandidates() }; }
+        catch (err) { app.ui.folderList = { error: err.message }; }
+        break;
+      case 'folderChoose':
+        if (!confirm(`Use the FridgeList made by ${args[0].owner ?? 'that account'} on this phone? `
+          + 'Its recipes and shopping list replace what this phone shows now.')) break;
+        app.chooseFolder(args[0]);
+        return;
       case 'folderCreate':
         if (!confirm(`Make a new, empty ${app.config.folder} folder in this account's OneDrive?\n\n`
           + 'Only do this if nobody has shared the household folder with you — otherwise this phone will have a list of its own that no one else sees.')) break;

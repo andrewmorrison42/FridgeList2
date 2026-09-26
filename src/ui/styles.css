@@ -255,3 +255,5 @@ textarea { width: 100%; padding: 8px 10px; font: inherit; line-height: 1.4; back
 li.done .for { color: var(--done); }
 .list .qty, .list button.ghost { white-space: nowrap; flex: none; }
 .list .name { min-width: 0; }
+.folders li { flex-wrap: wrap; }
+.folders li.current strong { color: var(--accent); }

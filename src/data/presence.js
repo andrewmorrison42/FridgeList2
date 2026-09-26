@@ -86,19 +86,25 @@ export function staleness(syncStatus, roster) {
   // a bulk import, or a recipe edited at the table — are not urgent (§7.3) and
   // must not make a working list look broken.
   const unsentUrgent = syncStatus.unsentShop ?? syncStatus.unsent;
-  const selfStale = selfAge === null || selfAge > STALE_MS || unsentUrgent > 0;
+  // Any change not yet uploaded after a failed attempt is worth saying: a
+  // menu picked on one phone that never reaches the others looks, to both
+  // people, exactly like a working app.
+  const stuck = syncStatus.pushError ? syncStatus.unsent : 0;
+  const selfStale = selfAge === null || selfAge > STALE_MS || unsentUrgent > 0 || stuck > 0;
   const staleOthers = others.filter((r) => r.stale);
 
   return {
     selfStale,
     selfText:
       selfAge === null ? 'not synced yet'
+      : stuck > 0 ? `${stuck} change${stuck === 1 ? '' : 's'} not saved to OneDrive`
       : unsentUrgent > 0 ? `${unsentUrgent} unsent · last synced ${ago(selfAge)}`
       : `synced ${ago(selfAge)}`,
     others: others.map((r) => ({ ...r, text: `${r.nickname} · ${ago(r.ageMs)}` })),
     warn: selfStale || staleOthers.length > 0,
     warnText:
-      selfStale && staleOthers.length
+      stuck > 0 ? `Not saved to OneDrive yet, so the others cannot see it: ${syncStatus.pushError}`
+      : selfStale && staleOthers.length
         ? `You and ${staleOthers.length} other device(s) may be out of date`
       : selfStale ? 'Your list may be out of date'
       : staleOthers.length ? `${staleOthers.map((r) => r.nickname).join(', ')} may be out of date`

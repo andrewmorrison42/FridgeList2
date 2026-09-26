@@ -142,9 +142,18 @@ export function createDevice(id, { now = () => new Date().toISOString() } = {}) 
       };
     },
 
-    /** Take note of events from elsewhere, so later emissions depend on them. */
+    /**
+     * Take note of events from elsewhere, so later emissions depend on them —
+     * and of this device's own, from before the app last closed, so its
+     * sequence carries on from where it was. Starting again at 1 reissued old
+     * ids, and the store, rightly ignoring an id it already has, dropped every
+     * change made after a reload until the count caught up.
+     */
     observe(events) {
-      for (const e of [].concat(events)) seen = vvAdvance(seen, e.dev, e.seq);
+      for (const e of [].concat(events)) {
+        seen = vvAdvance(seen, e.dev, e.seq);
+        if (e.dev === id && e.seq > seq) seq = e.seq;
+      }
       return this;
     },
   };

@@ -28,7 +28,13 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
   const etags = new Map();          // path -> last etag seen
   const snapshotSeq = new Map();    // path prefix -> n
   let cursor = undefined;
-  let unsent = [];                  // events emitted here, not yet confirmed up
+  // Events emitted here, not yet confirmed up. It starts with every event this
+  // device has ever made, not empty: the queue lives in memory, so anything
+  // not uploaded before the app last closed — a failed write, a change made
+  // before connecting — would otherwise stay on this phone for good. Writing
+  // a device's own files again is harmless (push rewrites each whole), so the
+  // first tick of every session makes sure the folder has all of them.
+  let unsent = store.events.filter((e) => e.dev === deviceId);
   let failures = 0;
   let lastPullAt = null;
   let lastPushAt = null;
@@ -151,6 +157,8 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
       ageMs: lastPullAt === null ? null : now() - lastPullAt,
       // A device with a backoff pending or unsent events says so rather than
       // implying it is up to date.
+      /** Why the last upload failed, while it is still failing. */
+      pushError: unsent.length > 0 ? lastError : null,
       healthy: failures === 0 && unsent.length === 0,
       retryInMs: failures === 0 ? 0 : BACKOFF_MS[Math.min(failures - 1, BACKOFF_MS.length - 1)],
     };

@@ -113,6 +113,14 @@ function recipesSection(app, { onAction }) {
       : rs.state === 'loading' ? h('p', { class: 'hint' }, `Checking ${rs.path}…`)
       : rs.state === 'error' && /No ".*" folder/.test(rs.error ?? '')
         ? h('p', { class: 'warn-text' }, 'The recipes are in the household folder, which this account cannot see yet — see Storage above.')
+      : rs.state === 'missing' && app.folder.shared ? h('div', {},
+          // A household folder shared with you that has no recipe book is
+          // not one to start afresh: it is more likely the wrong folder, or a
+          // file someone moved. Starting one here would hand the whole family
+          // the starter recipes.
+          h('p', { class: 'warn-text' }, `The shared folder has no file at ${rs.path}.`),
+          h('p', { class: 'hint' }, 'Check the path below, or check with whoever owns the folder. ',
+            'A new recipe book can only be started in a folder of your own.'))
       : rs.state === 'missing' ? h('div', {},
           h('p', { class: 'warn-text' }, `There is no file at ${rs.path}.`),
           h('p', { class: 'hint' }, 'Check the path below, or start a new recipe book there from the starter recipes. ',

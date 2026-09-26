@@ -106,3 +106,20 @@ describe('FR-SYNC-7 — display currency', () => {
     expect(store.version).toBe(2);                         // informed untick, does change
   });
 });
+
+describe('a device after the app reopens', () => {
+  it('carries on its sequence, so a change made after a reload is kept', async () => {
+    const { createDevice } = await import('../src/core/events.js');
+    const { createStore } = await import('../src/core/store.js');
+    const before = createDevice('d1');
+    const store = createStore();
+    store.apply([before.emit('menu.selection', { recipeId: 'baklava', present: true, servings: 4 }, 'draft')]);
+
+    // The app closes and opens again: a new device object for the same id.
+    const after = createDevice('d1').observe(store.events);
+    const next = after.emit('menu.selection', { recipeId: 'risotto', present: true, servings: 4 }, 'draft');
+    expect(next.seq).toBe(2);
+    expect(store.apply([next])).toBeTruthy();
+    expect(store.events.map((e) => e.payload.recipeId)).toEqual(['baklava', 'risotto']);
+  });
+});

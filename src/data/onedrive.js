@@ -1,112 +1,331 @@
-// OneDrive, behind the five functions of storage.js. ARCHITECTURE.md §3.3, §15.2.
+// OneDrive, behind the five functions of storage.js and the file access of
+// recipes.js. ARCHITECTURE.md §3.3, §15.2.
 //
 // The household's data goes browser ⇄ OneDrive directly. The app's own host
 // (GitHub Pages) never sees any of it.
 //
-// Auth is one shared Microsoft account per household, signed in on each device.
-// A static page cannot keep a secret, so this uses the authorisation code flow
-// with PKCE — the only flow appropriate for a public client — and the client id
-// is public by design.
+// Each person signs in with their own Microsoft account. One of them owns the
+// FridgeList folder and shares it (with editing) with the rest, who each add a
+// shortcut to it in their own OneDrive — as with the earlier app. So a path
+// like "/FridgeList" is resolved once, through the shortcut if there is one,
+// to the folder's drive and id; everything else is addressed relative to that
+// folder, wherever it lives. Graph's path addressing does not pass through a
+// shortcut, which is why the resolving has to be done here.
+//
+// A folder is never created without being asked. A phone that cannot find the
+// shared folder says so, rather than quietly starting its own list that no one
+// else can see.
 
 import { NOT_MODIFIED } from './storage.js';
 import { CONFLICT } from './recipes.js';
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
+const enc = (path) => path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+
+export class FolderNotFound extends Error {
+  constructor(path) {
+    super(`No "${path}" folder in this account's OneDrive, and none shared with it`);
+    this.path = path;
+  }
+}
 
 /**
- * @param {object} opts
- * @param {() => Promise<string>} opts.getToken  supplies a current access token
- * @param {string} [opts.root]  folder path within the drive
+ * One signed-in account's view of OneDrive: requests, and folders resolved
+ * through shortcuts. Shared by the storage and the recipe file, so a folder is
+ * looked up once.
  */
-export function createOneDriveStorage({ getToken, root = '/FridgeList' }) {
-  const itemPath = (path) => `${GRAPH}/me/drive/root:${root}/${path}`;
-  let deltaLink = null;
+export function createDrive({ getToken, fetchImpl = (...a) => fetch(...a) }) {
+  const folders = new Map();      // path → Promise<ref | null>
 
   async function call(url, init = {}) {
     const token = await getToken();
-    const res = await fetch(url, {
+    return fetchImpl(url.startsWith('http') ? url : GRAPH + url, {
       ...init,
       headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
     });
-    if (res.status === 304) return NOT_MODIFIED;
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`OneDrive ${init.method ?? 'GET'} ${res.status}: ${await res.text()}`);
-    return res;
+  }
+  const fail = async (what, res) => new Error(`OneDrive ${what} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+
+  const refOf = (item, via = null) => (item.remoteItem
+    ? { driveId: item.remoteItem.parentReference.driveId, itemId: item.remoteItem.id, shared: true,
+        owner: item.remoteItem.shared?.owner?.user?.displayName ?? null, via: via ?? 'shortcut' }
+    : { driveId: item.parentReference.driveId, itemId: item.id, shared: false, owner: null, via: via ?? 'own' });
+
+  /**
+   * A folder by path from the signed-in account's own root: `{ driveId,
+   * itemId, shared, owner, via }`, or null if there is none. A shortcut on the
+   * way is followed; failing that, a folder of the first segment's name that
+   * has been shared with this account.
+   */
+  async function lookup(path) {
+    const segs = path.split('/').filter(Boolean);
+    if (segs.length === 0) {
+      const res = await call('/me/drive/root');
+      if (!res.ok) throw await fail('read', res);
+      const root = await res.json();
+      return { driveId: root.parentReference?.driveId ?? root.id, itemId: root.id, shared: false, owner: null, via: 'own' };
+    }
+    let ref = null;
+    for (let i = 0; i < segs.length; i++) {
+      const url = ref ? `/drives/${ref.driveId}/items/${ref.itemId}:/${encodeURIComponent(segs[i])}` : `/me/drive/root:/${encodeURIComponent(segs[i])}`;
+      const res = await call(url);
+      if (res.status === 404) {
+        if (i === 0) {
+          const shared = await sharedWithMe(segs[0]);
+          if (shared) { ref = shared; continue; }
+        }
+        return null;
+      }
+      if (!res.ok) throw await fail('read', res);
+      const item = await res.json();
+      if (!item.folder && !item.remoteItem?.folder) return null;
+      const next = refOf(item);
+      ref = ref?.shared ? { ...next, shared: true, owner: ref.owner, via: ref.via } : next;
+    }
+    return ref;
+  }
+
+  /** Best effort only: Microsoft throttles this list and is retiring it. The shortcut is the way. */
+  async function sharedWithMe(name) {
+    try {
+      const res = await call('/me/drive/sharedWithMe');
+      if (!res.ok) return null;
+      const hit = ((await res.json()).value ?? []).find((i) => i.name === name && (i.folder || i.remoteItem?.folder) && i.remoteItem);
+      return hit ? refOf(hit, 'shared-with-me') : null;
+    } catch { return null; }
+  }
+
+  const drive = {
+    call, fail,
+    download: (url) => fetchImpl(url),
+    /** Resolve a folder once per session. A failure (not an absence) is retried next time. */
+    folder(path) {
+      const key = `/${enc(path)}`;
+      if (!folders.has(key)) {
+        const p = lookup(key).catch((err) => { folders.delete(key); throw err; });
+        folders.set(key, p);
+      }
+      return folders.get(key);
+    },
+    forget() { folders.clear(); },
+
+    /** Make a top-level folder in this account's own OneDrive. Only ever on request. */
+    async createFolder(path) {
+      const segs = path.split('/').filter(Boolean);
+      if (segs.length !== 1) throw new Error('Only a folder directly in your OneDrive can be created here — make it in OneDrive instead.');
+      const res = await call('/me/drive/root/children', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: segs[0], folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }),
+      });
+      if (!res.ok && res.status !== 409) throw await fail('create', res);
+      folders.delete(`/${enc(path)}`);
+      return drive.folder(path);
+    },
+
+    /** The folder's name and, if it is someone else's, whose — for Setup. */
+    async describe(path) {
+      const ref = await drive.folder(path);
+      if (!ref) return { found: false, path };
+      let alsoShared = null;
+      if (!ref.shared) {
+        // Using a folder of your own when the household's has been shared with
+        // you is the classic wrong turn; say so.
+        const s = await sharedWithMe(path.split('/').filter(Boolean)[0]);
+        if (s) alsoShared = s.owner ?? 'someone';
+      }
+      return { found: true, path, shared: ref.shared, owner: ref.owner, via: ref.via, alsoShared };
+    },
+  };
+  return drive;
+}
+
+/** An item under a resolved folder, by path relative to it. */
+const under = (ref, rel) => {
+  const p = enc(rel);
+  return p ? `/drives/${ref.driveId}/items/${ref.itemId}:/${p}` : `/drives/${ref.driveId}/items/${ref.itemId}`;
+};
+/** The same, followed by a sub-resource such as /content or /children. */
+const underWith = (ref, rel, what) => (enc(rel) ? `${under(ref, rel)}:${what}` : `${under(ref, rel)}${what}`);
+
+/**
+ * The per-device logs, in the household folder: the five functions of
+ * storage.js. Paths are relative to the folder, e.g. "state/log/d1.jsonl".
+ */
+export function createOneDriveStorage({ drive, root = '/FridgeList' }) {
+  let deltaLink = null;
+  let deltaBroken = false;
+  const nodes = new Map();        // item id → { name, parentId, folder }
+
+  async function folder() {
+    const ref = await drive.folder(root);
+    if (!ref) throw new FolderNotFound(root);
+    return ref;
+  }
+
+  /** Make the folders a path needs. Uploads do not reliably create them. */
+  async function ensureDirs(ref, dir) {
+    const segs = dir.split('/').filter(Boolean);
+    for (let i = 0; i < segs.length; i++) {
+      const here = segs.slice(0, i + 1).join('/');
+      const res = await drive.call(under(ref, here));
+      if (res.ok) continue;
+      if (res.status !== 404) throw await drive.fail('read', res);
+      const made = await drive.call(underWith(ref, segs.slice(0, i).join('/'), '/children'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: segs[i], folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }),
+      });
+      if (!made.ok && made.status !== 409) throw await drive.fail('create folder', made);
+    }
+  }
+
+  /** Where an item sits, relative to the folder, from the ids delta gives. */
+  function pathOf(id, rootId) {
+    const parts = [];
+    for (let cur = nodes.get(id), guard = 0; cur && guard < 50; cur = nodes.get(cur.parentId), guard++) {
+      parts.unshift(cur.name);
+      if (cur.parentId === rootId) return parts.join('/');
+    }
+    return null;                  // not (yet) connected to the folder
+  }
+
+  /** Every file under a folder, by listing: paths, or { path, etag, size } with `detail`. */
+  async function listAll(ref, rel = '', detail = false) {
+    const out = [];
+    let url = underWith(ref, rel, '/children');
+    while (url) {
+      const res = await drive.call(url);
+      if (res.status === 404) return out;
+      if (!res.ok) throw await drive.fail('list', res);
+      const body = await res.json();
+      for (const item of body.value ?? []) {
+        const path = rel ? `${rel}/${item.name}` : item.name;
+        if (item.folder) out.push(...await listAll(ref, path, detail));
+        else out.push(detail ? { path, etag: item.eTag, size: item.size } : path);
+      }
+      url = body['@odata.nextLink'] ?? null;
+    }
+    return out;
   }
 
   return {
     async list(prefix = '') {
-      const res = await call(`${itemPath(prefix)}:/children?$select=name,eTag,size`);
-      if (!res || res === NOT_MODIFIED) return [];
-      const body = await res.json();
-      return (body.value ?? []).map((f) => ({
-        path: `${prefix}${f.name}`, etag: f.eTag, size: f.size,
-      }));
+      // Everything under the prefix, subfolders included — the same as a
+      // prefix match on paths, which is what the contract means by it.
+      const ref = await folder();
+      return listAll(ref, prefix.replace(/\/+$/, ''), true);
     },
 
     async read(path, etag) {
-      // A conditional GET costs a 304 and no body when nothing has changed,
-      // which is what keeps the 1 MB library off every poll (§7.2).
-      const res = await call(`${itemPath(path)}:/content`, {
-        headers: etag ? { 'If-None-Match': etag } : {},
-      });
-      if (res === NOT_MODIFIED || res === null) return res;
-      return { content: await res.text(), etag: res.headers.get('ETag') };
+      // The item's metadata first — a 304 costs nothing when it has not
+      // changed (§7.2) — then its content from the download link it carries.
+      const ref = await folder();
+      const res = await drive.call(under(ref, path), { headers: etag ? { 'If-None-Match': etag } : {} });
+      if (res.status === 304) return NOT_MODIFIED;
+      if (res.status === 404) return null;
+      if (!res.ok) throw await drive.fail('read', res);
+      const meta = await res.json();
+      const dl = await fetchDownload(drive, meta);
+      return { content: dl, etag: meta.eTag };
     },
 
     async write(path, content) {
       // A simple upload replaces the item's content as a new version: atomic,
       // which §7.4 depends on. Files here are small; the chunked upload-session
       // API, which is not atomic in the same way, is never needed.
-      const res = await call(`${itemPath(path)}:/content`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: content,
+      const ref = await folder();
+      const put = () => drive.call(underWith(ref, path, '/content'), {
+        method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: content,
       });
-      const body = await res.json();
-      return { etag: body.eTag };
+      let res = await put();
+      if (res.status === 404) {                         // a folder on the way is missing
+        await ensureDirs(ref, path.split('/').slice(0, -1).join('/'));
+        res = await put();
+      }
+      if (!res.ok) throw await drive.fail('save', res);
+      return { etag: (await res.json()).eTag };
     },
 
     async remove(path) {
-      await call(itemPath(path), { method: 'DELETE' });
+      const ref = await folder();
+      const res = await drive.call(under(ref, path), { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) throw await drive.fail('delete', res);
     },
 
+    /**
+     * What changed since the last call, as paths relative to the folder.
+     *
+     * Delta names items and their parent ids, never their paths, and comes in
+     * pages; the paths are rebuilt from the folders it reports. Where delta is
+     * refused (it can be, on a folder in someone else's drive), every file is
+     * listed instead and the sync engine reads each conditionally — slower,
+     * never wrong.
+     */
     async delta() {
-      // Delta returns only what changed, so a poll costs the same however much
-      // is stored (§7.2).
-      const url = deltaLink ?? `${itemPath('')}:/delta`;
-      const res = await call(url);
-      if (!res || res === NOT_MODIFIED) return { changes: [], cursor: deltaLink };
-      const body = await res.json();
-      deltaLink = body['@odata.deltaLink'] ?? deltaLink;
-      const changes = (body.value ?? [])
-        .filter((i) => i.file)
-        .map((i) => i.name);
-      return { changes, cursor: deltaLink };
+      const ref = await folder();
+      if (!deltaBroken) {
+        try {
+          const changed = new Set();
+          let url = deltaLink ?? `${under(ref, '')}/delta`;
+          const pageItems = [];
+          while (url) {
+            const res = await drive.call(url);
+            if (!res.ok) throw Object.assign(await drive.fail('changes', res), { status: res.status });
+            const body = await res.json();
+            pageItems.push(...(body.value ?? []));
+            if (body['@odata.deltaLink']) { deltaLink = body['@odata.deltaLink']; url = null; }
+            else url = body['@odata.nextLink'] ?? null;
+          }
+          for (const item of pageItems) {
+            if (item.deleted) { nodes.delete(item.id); continue; }
+            nodes.set(item.id, { name: item.name, parentId: item.parentReference?.id ?? null, folder: !!item.folder });
+          }
+          for (const item of pageItems) {
+            if (item.deleted || item.folder || item.id === ref.itemId) continue;
+            const path = pathOf(item.id, ref.itemId);
+            if (path) changed.add(path);
+          }
+          return { changes: [...changed], cursor: deltaLink };
+        } catch (err) {
+          // A refusal (4xx) means delta is not available here: list instead.
+          // A network failure is just a failed poll, and says so.
+          if (!(err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 429)) throw err;
+          deltaBroken = true;
+        }
+      }
+      return { changes: await listAll(ref), cursor: null };
     },
   };
 }
 
-/**
- * A single file anywhere in the drive, by path, with eTag guards — the recipe
- * file (src/data/recipes.js). Unlike the per-device logs above, this file is
- * shared with the earlier version of the app, so every write is conditional.
- * Same contract as createMemoryFiles in recipes.js.
- */
-export function createOneDriveFiles({ getToken }) {
-  const itemUrl = (path) => `${GRAPH}/me/drive/root:${path.split('/').map(encodeURIComponent).join('/')}`;
+/** A file's content, from the pre-authenticated link in its metadata: a plain GET, no token needed. */
+async function fetchDownload(drive, meta) {
+  const url = meta['@microsoft.graph.downloadUrl'];
+  if (!url) throw new Error('OneDrive gave no download link for that file');
+  const res = await drive.download(url);
+  if (!res.ok) throw new Error(`OneDrive download ${res.status}`);
+  return res.text();
+}
 
-  async function call(url, init = {}) {
-    const token = await getToken();
-    return fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
+/**
+ * A single file by path, with eTag guards — the recipe file (data/recipes.js).
+ * Its folder is resolved the same way, so a recipe file in a shared folder is
+ * reached through the shortcut. Same contract as createMemoryFiles.
+ */
+export function createOneDriveFiles({ drive }) {
+  async function locate(path) {
+    const segs = path.split('/').filter(Boolean);
+    const name = segs.pop();
+    const ref = await drive.folder(`/${segs.join('/')}`);
+    if (!ref) throw new FolderNotFound(`/${segs.join('/')}`);
+    return { ref, name };
   }
-  const fail = async (what, res) => new Error(`OneDrive ${what} ${res.status}: ${await res.text().catch(() => '')}`);
 
   return {
     async stat(path) {
-      const res = await call(`${itemUrl(path)}?$select=eTag`);
+      const { ref, name } = await locate(path);
+      const res = await drive.call(under(ref, name));
       if (res.status === 404) return null;
-      if (!res.ok) throw await fail('check', res);
+      if (!res.ok) throw await drive.fail('check', res);
       return { etag: (await res.json()).eTag };
     },
 
@@ -114,22 +333,22 @@ export function createOneDriveFiles({ getToken }) {
       // The item's metadata carries its eTag and a short-lived download link.
       // Reading both from one response ties the content to the eTag that
       // If-Match will later be checked against.
-      const res = await call(itemUrl(path));
+      const { ref, name } = await locate(path);
+      const res = await drive.call(under(ref, name));
       if (res.status === 404) return null;
-      if (!res.ok) throw await fail('read', res);
+      if (!res.ok) throw await drive.fail('read', res);
       const meta = await res.json();
-      const dl = await fetch(meta['@microsoft.graph.downloadUrl']);
-      if (!dl.ok) throw await fail('download', dl);
-      return { content: await dl.text(), etag: meta.eTag };
+      return { content: await fetchDownload(drive, meta), etag: meta.eTag };
     },
 
     async put(path, content, { ifMatch, ifNoneMatch } = {}) {
+      const { ref, name } = await locate(path);
       const headers = { 'Content-Type': 'application/json' };
       if (ifMatch) headers['If-Match'] = ifMatch;
       if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
-      const res = await call(`${itemUrl(path)}:/content`, { method: 'PUT', headers, body: content });
+      const res = await drive.call(underWith(ref, name, '/content'), { method: 'PUT', headers, body: content });
       if (res.status === 412 || res.status === 409) return CONFLICT;
-      if (!res.ok) throw await fail('save', res);
+      if (!res.ok) throw await drive.fail('save', res);
       return { etag: (await res.json()).eTag };
     },
   };

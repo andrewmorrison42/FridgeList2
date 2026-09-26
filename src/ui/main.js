@@ -140,6 +140,12 @@ export async function mount(root, { storage } = {}) {
         location.reload();
         return;
       case 'recipesCheck':  await app.recipes.refresh({ force: true }); break;
+      case 'folderCheck':   await app.checkFolder(); break;
+      case 'folderCreate':
+        if (!confirm(`Make a new, empty ${app.config.folder} folder in this account's OneDrive?\n\n`
+          + 'Only do this if nobody has shared the household folder with you — otherwise this phone will have a list of its own that no one else sees.')) break;
+        try { await app.createFolder(); } catch (err) { app.folder = { state: 'error', error: err.message }; }
+        break;
       case 'recipesCreate':
         try { await app.recipes.createFromSeed(); }
         catch (err) { app.ui.recipesError = err.message; }
@@ -344,6 +350,9 @@ export async function mount(root, { storage } = {}) {
   app.recipes.subscribe(background);
   app.start(background);
   render();
+  // Which folder this account reaches — its own, or someone's through a
+  // shortcut — shown in Setup, and the reason if none.
+  app.checkFolder({ refresh: false }).then(background, () => {});
 
   window.addEventListener('hashchange', () => onAction('tab', location.hash.slice(1) || 'list'));
   return app;

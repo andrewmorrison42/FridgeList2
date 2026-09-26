@@ -73,24 +73,49 @@ between phones, register a free Azure application once for the whole household.
    requires PKCE. "Web" will not work from a static page.*
 5. **Register**, then copy the **Application (client) ID**
 6. **API permissions → Add a permission → Microsoft Graph → Delegated**, add
-   `Files.ReadWrite`, `offline_access` and `User.Read`
+   `Files.ReadWrite.All`, `offline_access` and `User.Read`
 
 No client secret is created, and none is needed: a static page cannot keep one,
 which is why the app uses the authorisation code flow with PKCE (`src/data/auth.js`).
+
+**Share the folder, once.** Everyone signs in with their own Microsoft
+account. One person's OneDrive holds the `FridgeList` folder (with the earlier
+app, it already does); they share it with the others:
+
+1. On [onedrive.com](https://onedrive.com), as the folder's owner: right-click
+   **FridgeList** → **Share** → each person's Microsoft account email →
+   **allow editing** (view-only means their ticks silently fail to save)
+2. Each person, on onedrive.com as themselves: **Shared** → **FridgeList** →
+   **Add shortcut to My files**. This copies nothing; it is how the app finds
+   the folder. (The app also looks in *Shared with me*, but Microsoft is
+   retiring that list, so do not rely on it.)
 
 **Then, on each device:**
 
 1. Open the app, go to the **Setup** tab
 2. Paste the same **Application (client) ID** — the same one on every device
 3. Leave **Folder** as `/FridgeList` unless you want it elsewhere
-4. Tap **Connect to OneDrive** and sign in with the household's shared
-   Microsoft account — the same account on every device
+4. Tap **Connect to OneDrive** and sign in **as the person who uses this phone**
+   — Microsoft asks which account; choose theirs
 5. Give the device a **Name** ("Dad's phone") so the list can say who ticked what
 
-The first device to connect creates the app's own files in the folder; the
-rest pick them up on their next sync. Recipes come from `recipes-data.json` in
-the same folder (see Recipes below). Data appears in OneDrive under `FridgeList`
-as plain JSON you can read, copy or back up by hand.
+Setup then says which folder the phone is using: *in this account's OneDrive*
+on the owner's phone, *shared by …* on everyone else's. If it cannot find one,
+it says so and shows these steps — it never quietly starts a folder of its own,
+which would give that phone a list nobody else sees. (There is a button to
+start a new folder, for a household setting up for the first time.)
+
+The app writes its own files into `state/` and `shops/` inside the folder, and
+reads the recipes from `recipes-data.json` there (see Recipes below). The
+earlier app's other files are left alone. Everything is plain JSON you can
+read, copy or back up by hand.
+
+**About the permission.** `Files.ReadWrite.All` is what lets a person open a
+folder someone else owns; `Files.ReadWrite` covers only their own files. It
+reaches any file the person can reach in OneDrive, not just this folder — the
+app only ever uses the one folder (`src/data/onedrive.js`), and the earlier app
+asks for the same. Anyone who signed in before version 0.7.0 is asked to sign
+in again to grant it.
 
 For local testing, register `http://localhost:8099/` as a second SPA redirect
 URI on the same app registration.

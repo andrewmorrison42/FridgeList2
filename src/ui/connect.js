@@ -40,8 +40,8 @@ export function connectView(app, { onAction }) {
     h('h2', {}, 'Storage'),
     cfg.storageMode === 'onedrive' && app.auth?.connected
       ? h('div', {},
-          h('p', { class: 'ok' }, `Connected to OneDrive · ${cfg.folder}`),
-          h('p', { class: 'hint' },
+          folderStatus(app, { onAction }),
+          app.folder.state === 'found' && h('p', { class: 'hint' },
             status.lastPullAt ? `Last synced ${Math.round((Date.now() - status.lastPullAt) / 1000)}s ago.` : 'Not synced yet.'),
           h('div', { class: 'actions' },
             h('button', { onClick: () => onAction('syncNow') }, 'Sync now'),
@@ -111,6 +111,8 @@ function recipesSection(app, { onAction }) {
           'Once connected to OneDrive, the recipes come from the file below instead.')
       : rs.state === 'ok' ? h('p', { class: 'ok' }, `${rs.recipes} recipes from ${rs.path} · ${ago}`)
       : rs.state === 'loading' ? h('p', { class: 'hint' }, `Checking ${rs.path}…`)
+      : rs.state === 'error' && /No ".*" folder/.test(rs.error ?? '')
+        ? h('p', { class: 'warn-text' }, 'The recipes are in the household folder, which this account cannot see yet — see Storage above.')
       : rs.state === 'missing' ? h('div', {},
           h('p', { class: 'warn-text' }, `There is no file at ${rs.path}.`),
           h('p', { class: 'hint' }, 'Check the path below, or start a new recipe book there from the starter recipes. ',
@@ -273,4 +275,55 @@ function ingredientRow(raw, ing, onAction) {
         SHOPPING_UNITS.map((u) => h('option', { value: u.value, selected: u.value === ing.shoppingUnit }, u.label))),
     ),
   );
+}
+
+/**
+ * Which folder this account is using, and whose it is. Each person signs in as
+ * themselves; the folder belongs to one of them and is shared with the rest,
+ * who reach it through a shortcut in their own OneDrive.
+ */
+function folderStatus(app, { onAction }) {
+  const f = app.folder;
+  const path = app.config.folder;
+  const reconsent = app.auth?.needsSharedAccess && h('div', { class: 'refusal' },
+    h('p', {}, 'This phone signed in before shared folders were supported. Sign in again to reach a folder someone else has shared with you.'),
+    h('div', { class: 'actions' }, h('button', { class: 'primary', onClick: () => onAction('signIn') }, 'Sign in again')));
+
+  if (f.state === 'checking') return h('div', {}, h('p', { class: 'hint' }, `Looking for ${path}…`), reconsent);
+  if (f.state === 'error') {
+    return h('div', {},
+      h('p', { class: 'warn-text' }, `Couldn't look for ${path}: ${f.error}`),
+      reconsent,
+      h('div', { class: 'actions' }, h('button', { onClick: () => onAction('folderCheck') }, 'Try again')));
+  }
+  if (f.state === 'missing') {
+    return h('div', {},
+      h('p', { class: 'warn-text' }, `This Microsoft account can't see a ${path} folder.`),
+      reconsent,
+      h('p', { class: 'hint' }, 'If someone in the household already has one:'),
+      h('ol', { class: 'steps' },
+        h('li', {}, `They share their ${path.replace(/^\//, '')} folder with this account's email, from onedrive.com, with editing allowed (not view only).`),
+        h('li', {}, 'On onedrive.com, signed in as this account: Shared → the folder → Add shortcut to My files.'),
+        h('li', {}, 'Then tap Check again.'),
+      ),
+      h('div', { class: 'actions' },
+        h('button', { class: 'primary', onClick: () => onAction('folderCheck') }, 'Check again'),
+        h('button', { onClick: () => onAction('folderCreate') }, `Start a new ${path.replace(/^\//, '')} folder here`),
+      ),
+      h('p', { class: 'hint' }, 'Only start a new one if nobody has — otherwise this phone would have a list of its own that no one else sees.'),
+    );
+  }
+  if (f.state === 'found') {
+    return h('div', {},
+      h('p', { class: 'ok' }, f.shared
+        ? `Connected · ${path}, shared by ${f.owner ?? 'another account'}`
+        : `Connected · ${path} in this account's OneDrive`),
+      f.alsoShared && h('div', { class: 'refusal' },
+        h('p', {}, `${f.alsoShared} has also shared a ${path.replace(/^\//, '')} folder with this account, but this phone is using one of its own — so nobody else sees what it does.`),
+        h('p', { class: 'hint' }, `On onedrive.com, rename or delete this account's own ${path.replace(/^\//, '')} folder, add a shortcut to the shared one (Shared → the folder → Add shortcut to My files), then Check again.`),
+        h('div', { class: 'actions' }, h('button', { onClick: () => onAction('folderCheck') }, 'Check again'))),
+      reconsent,
+    );
+  }
+  return reconsent || null;
 }

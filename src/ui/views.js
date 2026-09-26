@@ -174,7 +174,7 @@ export function listView(app, { onAction }) {
       h('p', { class: 'hint' },
         'These were for a meal you did not cook. You may still have them, or they may have gone into something else.'),
       h('ul', {}, carryOver.map((l) => h('li', {},
-        h('span', { class: 'grow' }, l.name, ' ', h('small', {}, formatQuantity(l.qty, l.unit))),
+        h('span', { class: 'grow' }, l.name, ' ', h('small', {}, formatQuantity(l.qty, l.unit)), lineFor(app, l)),
         h('button', { onClick: () => onAction('addLine', l.ingredientId) }, 'Still need it'),
         h('button', { onClick: () => onAction('dismiss', l.ingredientId) }, 'Have it'),
       ))),
@@ -190,7 +190,7 @@ export function listView(app, { onAction }) {
               type: 'checkbox', checked: done(l), disabled: !app.can.canTick,
               onChange: (e) => onAction('tick', l.ingredientId, e.target.checked),
             }),
-            h('span', { class: 'name' }, l.name),
+            h('span', { class: 'name' }, l.name, lineFor(app, l)),
             h('span', { class: 'qty' }, formatQuantity(l.qty, l.unit)),
           ),
           // A preference note is shown only where it matters (FR-ING-3/4).
@@ -209,7 +209,7 @@ export function listView(app, { onAction }) {
       h('summary', {}, `At home already (${atHome.length})`),
       h('p', { class: 'hint' }, 'Pantry items you usually have. Tap Need it for anything you are out of.'),
       h('ul', {}, atHome.sort((a, b) => a.name.localeCompare(b.name)).map((l) => h('li', {},
-        h('span', { class: 'grow' }, l.name, ' ', h('small', {}, formatQuantity(l.qty, l.unit))),
+        h('span', { class: 'grow' }, l.name, ' ', h('small', {}, formatQuantity(l.qty, l.unit)), lineFor(app, l)),
         app.can.canAddLines && h('button', { onClick: () => onAction('addLine', l.ingredientId) }, 'Need it'),
       ))),
     ),
@@ -219,6 +219,24 @@ export function listView(app, { onAction }) {
       h('ul', {}, problems.map((p) => h('li', {}, `${p.kind}: ${p.ingredientId ?? p.recipeId}`))),
     ),
   );
+}
+
+/**
+ * What a line is for: the recipes that need it, and whether it is a staple or
+ * on the Wait List. With more than one reason, each one's share, so a line of
+ * 750 mL reads as "Risotto 500 mL · Chilli 250 mL" and can be judged by meal.
+ */
+function lineFor(app, l) {
+  const { recipes } = app.library;
+  const parts = [];
+  const many = l.sources.length > 1;
+  for (const src of l.sources) {
+    const amount = many && src.qty ? ` ${formatQuantity(src.qty, l.unit)}` : '';
+    if (src.kind === 'recipe' || src.kind === 'carried') parts.push(`${recipes.get(src.recipeId)?.name ?? src.recipeId}${amount}`);
+    else if (src.kind === 'staple') parts.push(`staple${amount}`);
+    else if (src.kind === 'waitlist') parts.push(`Wait List${src.note ? ` (${src.note})` : ''}${amount}`);
+  }
+  return parts.length > 0 && h('small', { class: 'for' }, parts.join(' · '));
 }
 
 // -- Wait list --------------------------------------------------------------

@@ -262,3 +262,19 @@ describe('at home already, Need it, and Wait List items typed in', () => {
     expect(after.carryOver.map((l) => l.ingredientId)).toEqual(['capsicum']);
   });
 });
+
+describe('what a line is for', () => {
+  it('keeps each recipe\'s share of a line, so the list can say which meal needs how much', () => {
+    const d = createDevice('f');
+    const events = [
+      d.emit('menu.selection', { recipeId: 'cake', present: true, servings: 8, plannedFor: GENESIS_SHOP }, 'draft'),
+      d.emit('menu.selection', { recipeId: 'pesto', present: true, servings: 4, plannedFor: GENESIS_SHOP }, 'draft'),
+    ];
+    const lib = { ...library, recipes: new Map([...library.recipes,
+      ['scones', { id: 'scones', name: 'Scones', servings: 4, lines: [{ ingredientId: 'flour', quantity: 1, cookingUnit: 'cup' }] }]]) };
+    events.push(d.emit('menu.selection', { recipeId: 'scones', present: true, servings: 4, plannedFor: GENESIS_SHOP }, 'draft'));
+    const flourLine = generate(lib, { events, shopId: GENESIS_SHOP }).lines.find((l) => l.ingredientId === 'flour');
+    expect(flourLine.sources.map((s) => [s.recipeId, s.qty])).toEqual([['cake', 500], ['scones', 250]]);
+    expect(flourLine.qty).toBe(750);
+  });
+});

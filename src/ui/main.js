@@ -2,6 +2,7 @@
 // reaches it — FR-SYNC-7, §11.1.
 
 import { createApp } from './app.js';
+import { local } from '../data/persist.js';
 import { h, clear } from './dom.js';
 import { statusBar, closeReport } from './status.js';
 import { planView, listView, waitListView, recipesView } from './views.js';
@@ -73,20 +74,26 @@ async function copyRich(html, text) {
   }
 }
 
-/** Print one part of the screen only (styles.css): the week's menu, for the fridge. */
+/**
+ * Print one part of the screen only (styles.css): the week's menu, for the
+ * fridge. The class only matters to print styles, so it stays until printing
+ * is over or the next tap — never on a timer: a phone returns from print()
+ * straight away and builds its preview a moment later, and a class taken away
+ * after a second left the preview showing the whole Plan screen.
+ */
 function printOnly(cls) {
   document.body.classList.add(cls);
   const done = () => { document.body.classList.remove(cls); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   window.print();
-  setTimeout(done, 1000);    // browsers that return from print() without afterprint
 }
 
 export async function mount(root, { storage } = {}) {
   const app = await createApp({ storage });
-  app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false };
+  app.ui = { tab: location.hash.slice(1) || 'list', search: '', confirmingClose: false, hideDone: local.get('hideDone', false) };
 
   const onAction = async (action, ...args) => {
+    if (action !== 'printMenu') document.body.classList.remove('print-menu');   // see printOnly
     switch (action) {
       case 'tab':
         // Leaving for another tab abandons the close confirmation. Otherwise
@@ -234,6 +241,7 @@ export async function mount(root, { storage } = {}) {
         break;
       case 'printMenu':  printOnly('print-menu'); return;
       case 'printList':  window.print(); return;
+      case 'hideDone':   app.ui.hideDone = args[0]; local.set('hideDone', args[0]); break;
 
       // -- Setup: the household's switches, staples, the ingredient list --
       case 'feature':       await settingsChange((src) => setFeature(src, args[0], args[1])); break;

@@ -257,3 +257,7 @@ li.done .for { color: var(--done); }
 .list .name { min-width: 0; }
 .folders li { flex-wrap: wrap; }
 .folders li.current strong { color: var(--accent); }
+.count-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.hide-done { margin: 0; font-size: .85rem; color: var(--muted); flex: none; }
+.menu-print .menu-note { color: var(--muted); font-size: 10pt; }
+@media print { .hide-done { display: none !important; } }

@@ -132,7 +132,7 @@ function menuPrint(app, chosen) {
   const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
   return h('div', { class: 'menu-print' },
     h('h1', {}, "This week's menu"),
-    h('p', { class: 'hint' }, `Planned ${today}. Tick each meal off as you cook it.`),
+    h('p', { class: 'menu-note' }, `Planned ${today}. Tick each meal off as you cook it.`),
     h('ul', {}, chosen.map((sel) => {
       const r = recipes.get(sel.recipeId);
       return h('li', {},
@@ -154,15 +154,25 @@ export function listView(app, { onAction }) {
   const done = (l) => app.store.get(`line:${id}:${l.ingredientId}:done`) === true;
 
   const categoryOrder = ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'];
-  const grouped = groupForDisplay(visible, { categoryOrder });
-  const remaining = visible.filter((l) => !done(l)).length;
+  const ticked = visible.filter(done).length;
+  const remaining = visible.length - ticked;
+  // "Hide ticked" is this phone's choice alone: what is in the trolley is still
+  // ticked for everyone, it just stops taking up this screen.
+  const hiding = app.ui.hideDone && ticked > 0;
+  const grouped = groupForDisplay(hiding ? visible.filter((l) => !done(l)) : visible, { categoryOrder });
 
   return h('section', { class: 'list' },
     h('div', { class: 'title-row' },
       h('h1', {}, phase === 'draft' ? 'Shopping list (planning)' : 'Shopping list'),
       h('button', { onClick: () => onAction('printList') }, 'Print'),
     ),
-    h('p', { class: 'count' }, `${remaining} of ${visible.length} to get`),
+    h('div', { class: 'count-row' },
+      h('p', { class: 'count' }, `${remaining} of ${visible.length} to get`),
+      (ticked > 0 || app.ui.hideDone) && h('label', { class: 'check hide-done' },
+        h('input', { type: 'checkbox', checked: !!app.ui.hideDone, onChange: (e) => onAction('hideDone', e.target.checked) }),
+        hiding ? `Hide ticked (${ticked} hidden)` : 'Hide ticked'),
+    ),
+    hiding && remaining === 0 && h('p', { class: 'empty' }, 'Everything is ticked.'),
 
     phase === 'draft' && h('p', { class: 'hint' },
       'Remove anything already in the pantry. Once shopping starts, nothing can be removed — only added.'),

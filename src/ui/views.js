@@ -152,6 +152,7 @@ export function listView(app, { onAction }) {
   const suppressed = (ingredientId) => app.store.get(`line:${id}:${ingredientId}:suppressed`) === true;
   const visible = lines.filter((l) => !suppressed(l.ingredientId));
   const done = (l) => app.store.get(`line:${id}:${l.ingredientId}:done`) === true;
+  const twice = app.boughtTwice();
 
   const categoryOrder = ['Fruit and Vegetables', 'Meat', 'Cold', 'Pantry', 'Toiletries', 'Other'];
   const ticked = visible.filter(done).length;
@@ -205,6 +206,9 @@ export function listView(app, { onAction }) {
           ),
           // A preference note is shown only where it matters (FR-ING-3/4).
           l.preference && h('span', { class: 'pref' }, l.preference),
+          // Ticked on two phones at once: probably two in the trolleys.
+          twice.has(l.ingredientId) && h('span', { class: 'twice', title: `Ticked by ${twice.get(l.ingredientId).join(' and ')}` },
+            `×2 · ${twice.get(l.ingredientId).join(' & ')}`),
           app.can.canRemoveLines && h('button', {
             class: 'ghost', onClick: () => onAction('suppress', l.ingredientId),
           }, 'Have it'),

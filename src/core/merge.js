@@ -162,21 +162,6 @@ export function doubleTicked(events) {
   return out;
 }
 
-/**
- * Lines where a tick and an untick are genuinely concurrent — the two people
- * disagreed without seeing each other. Surfaced at reconcile rather than
- * silently resolved, so they can settle it out loud. §8.4.
- */
-export function disagreements(events) {
-  const out = [];
-  for (const [key, group] of groupByKey(events)) {
-    if (!key.endsWith(':done')) continue;
-    const r = resolve(group, { trueWins: true });
-    if (r.conflict) out.push({ key, events: maximal(group) });
-  }
-  return out;
-}
-
 // ---------------------------------------------------------------------------
 // Compaction
 // ---------------------------------------------------------------------------

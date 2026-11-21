@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { createDevice } from '../src/core/events.js';
+import { doubleTicked } from '../src/core/merge.js';
 import { toShoppingUnit, scaleForServings, formatQuantity } from '../src/core/units.js';
 import { selections, carryOverTransitions, PLANNED, CARRIED, FLAGGED, COOKED } from '../src/core/carryover.js';
 import { generate, groupForDisplay } from '../src/core/generate.js';
@@ -276,5 +277,22 @@ describe('what a line is for', () => {
     const flourLine = generate(lib, { events, shopId: GENESIS_SHOP }).lines.find((l) => l.ingredientId === 'flour');
     expect(flourLine.sources.map((s) => [s.recipeId, s.qty])).toEqual([['cake', 500], ['scones', 250]]);
     expect(flourLine.qty).toBe(750);
+  });
+});
+
+describe('bought twice (FR-SYNC-4.2)', () => {
+  const tick = (dev, seen = []) => dev.observe(seen)
+    .emit('line.done', { shopId: 's1', ingredientId: 'milk', done: true }, 'open');
+
+  it('reports a line ticked on two phones that had not seen each other', () => {
+    const a = tick(createDevice('d0'));
+    const b = tick(createDevice('d1'));
+    expect(doubleTicked([a, b])).toEqual([{ key: 'line:s1:milk:done', devices: ['d0', 'd1'] }]);
+  });
+
+  it('does not report a tick made after seeing the other', () => {
+    const a = tick(createDevice('d0'));
+    const b = tick(createDevice('d1'), [a]);
+    expect(doubleTicked([a, b])).toEqual([]);
   });
 });

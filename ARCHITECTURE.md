@@ -569,6 +569,13 @@ so. It never claims to be up to date.
 
 ### 7.5 Compaction
 
+> **Not running as of 0.7.4.** The first version wrote snapshots nobody read,
+> and since the local store still held every event, the next upload wrote the
+> full log back — so once a log crossed the threshold it compacted again on
+> every tick. It was removed from `src/data/sync.js`. `compact()` in
+> `src/core/merge.js` and its property tests stay; the design below returns
+> only together with a store that drops what it compacts.
+
 Logs grow. Compaction keeps them small, and must do so without ever risking
 property 2 of §5.8.
 

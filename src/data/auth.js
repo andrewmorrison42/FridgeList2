@@ -20,7 +20,7 @@ const SCOPES = 'Files.ReadWrite.All offline_access User.Read';
 const OLD_SCOPES = 'Files.ReadWrite offline_access User.Read';
 const KEY = 'fridgelist.auth';
 
-const load = () => { try { return JSON.parse(sessionStorage.getItem(KEY) ?? localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
 const save = (t) => { try { localStorage.setItem(KEY, JSON.stringify(t)); } catch { /* private window */ } };
 const forget = () => { try { localStorage.removeItem(KEY); } catch { /* ignore */ } };
 
@@ -36,6 +36,7 @@ const randomVerifier = () => b64url(crypto.getRandomValues(new Uint8Array(48)));
 
 export function createAuth({ clientId, redirectUri = location.origin + location.pathname }) {
   let tokens = load();
+  let refreshing = null;          // one refresh at a time, shared by every caller
 
   async function exchange(body) {
     const res = await fetch(`${AUTHORITY}/token`, {
@@ -97,8 +98,9 @@ export function createAuth({ clientId, redirectUri = location.origin + location.
     async getToken() {
       if (!tokens?.refresh_token) throw new Error('not signed in');
       if (Date.now() < (tokens.expiresAt ?? 0)) return tokens.access_token;
-      await exchange({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, scope: tokens.requested ?? OLD_SCOPES });
-      return tokens.access_token;
+      refreshing ??= exchange({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, scope: tokens.requested ?? OLD_SCOPES })
+        .finally(() => { refreshing = null; });
+      return (await refreshing).access_token;
     },
 
     signOut() { tokens = null; forget(); },

@@ -54,6 +54,8 @@ export function refusal(app, action, onAction) {
 /** Shown before finishing: what nobody ticked, and who might not have synced. */
 export function closeReport(app) {
   const outstanding = app.outstanding();
+  const twice = app.boughtTwice();
+  const nameOf = new Map(app.list().lines.map((l) => [l.ingredientId, l.name]));
   const stale = app.roster.filter((r) => r.stale && !r.isSelf);
   const s = app.staleness;
 
@@ -66,6 +68,14 @@ export function closeReport(app) {
           h('p', {}, `${outstanding.length} item(s) nobody has ticked:`),
           h('ul', {}, outstanding.map((l) => h('li', {}, l.name))),
         ),
+
+    // Informational only (FR-SYNC-4.2): nothing to decide, but worth a look
+    // in the trolleys before the receipt.
+    twice.size > 0 && h('div', { class: 'twice-report' },
+      h('p', {}, 'Ticked on more than one phone — you may have two:'),
+      h('ul', {}, [...twice].map(([ing, who]) =>
+        h('li', {}, nameOf.get(ing) ?? ing, ' ', h('small', {}, `(${who.join(' and ')})`)))),
+    ),
 
     // Informed override, never a silent one, and never a hard block a flat
     // battery can strand you behind.

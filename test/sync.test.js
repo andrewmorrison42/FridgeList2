@@ -176,3 +176,42 @@ describe('presence and staleness (§8.2, §8.3)', () => {
     expect(s.selfText).toBe('not synced yet');
   });
 });
+
+describe('local saving and upload volume (0.7.4)', () => {
+  it('saves every own event, even one that changes nothing, so no id is handed out twice', () => {
+    // A double tap: the second tick changes nothing on screen. It used to be
+    // saved only when something else changed, so a reload could reissue its id
+    // to the next event — which every other phone would then ignore.
+    const saved = [];
+    const store = createStore();
+    const device = createDevice('d0');
+    const sync = createSync({ storage: createMemoryStorage(), store, deviceId: 'd0', persist: (ev) => saved.push(...ev) });
+    const tick = () => sync.record(device.observe(store.events)
+      .emit('line.done', { shopId: 's1', ingredientId: 'milk', done: true }, 'open'));
+    tick();
+    tick();
+    expect(createDevice('d0').observe(saved).seq).toBe(2);
+  });
+
+  it('saves events read from other phones as they arrive', async () => {
+    const storage = createMemoryStorage();
+    const a = phone('d0', storage);
+    a.tick('flour');
+    await a.sync.tick();
+    const saved = [];
+    const sync = createSync({ storage, store: createStore(), deviceId: 'd1', persist: (ev) => saved.push(...ev) });
+    await sync.tick();
+    expect(saved.map((e) => e.id)).toEqual(a.store.events.map((e) => e.id));
+  });
+
+  it('a big log does not cause uploads on a tick with nothing new', async () => {
+    const storage = createMemoryStorage();
+    const a = phone('d0', storage);
+    for (let i = 0; i < 2100; i++) a.tick(`item${i % 50}`, i % 2 === 0);
+    await a.sync.tick();
+    const before = (await storage.delta(0)).cursor;
+    await a.sync.tick();
+    await a.sync.tick();
+    expect((await storage.delta(0)).cursor).toBe(before);
+  });
+});

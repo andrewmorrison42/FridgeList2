@@ -6,12 +6,9 @@
 // user losing anything (FR-SYNC-6). A dead spot by the freezers costs
 // propagation delay, never data.
 
-import { compact } from '../core/merge.js';
 import { currentShop } from '../core/shop.js';
 import { NOT_MODIFIED } from './storage.js';
 
-const COMPACT_BYTES = 256 * 1024;
-const COMPACT_EVENTS = 2000;
 const BACKOFF_MS = [2000, 4000, 8000, 16000, 30000];
 
 /** Which file an event belongs in: shop-scoped, or the long-lived state log. */
@@ -24,9 +21,13 @@ export function pathFor(event, deviceId) {
     : `state/log/${deviceId}.jsonl`;
 }
 
-export function createSync({ storage, store, deviceId, now = () => Date.now() }) {
+// `persist` saves events on this device (IndexedDB). It is called with every
+// event that arrives — this device's own and those read from the folder —
+// whether or not it changed the answer: an own event left unsaved would be
+// lost at the next reload, and its id handed out again to a different event,
+// which every other phone would then ignore.
+export function createSync({ storage, store, deviceId, now = () => Date.now(), persist = () => {} }) {
   const etags = new Map();          // path -> last etag seen
-  const snapshotSeq = new Map();    // path prefix -> n
   let cursor = undefined;
   // Events emitted here, not yet confirmed up. It starts with every event this
   // device has ever made, not empty: the queue lives in memory, so anything
@@ -43,6 +44,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
   /** Record a locally created event: local state first, upload afterwards. */
   function record(events) {
     const list = [].concat(events);
+    persist(list);
     store.apply(list);              // FR-SYNC-7 — the screen updates now
     unsent.push(...list);
     return list;
@@ -106,6 +108,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
         if (got === NOT_MODIFIED || got === null) continue;
         etags.set(path, got.etag);
         const events = got.content.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        persist(events);
         if (store.apply(events)) applied += events.length;
       } catch (err) {
         lastError = err.message;                             // one bad file must
@@ -117,26 +120,10 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
     return { applied, ok: true };
   }
 
-  /**
-   * Compaction: a log with dead events removed, written as a per-device
-   * snapshot. Never a shared file — two devices compacting at once cannot
-   * collide, and a device deletes only its own older snapshots. §7.5.
-   */
-  async function maybeCompact(path) {
-    const events = ownEventsFor(path);
-    const bytes = events.reduce((n, e) => n + JSON.stringify(e).length, 0);
-    if (bytes < COMPACT_BYTES && events.length < COMPACT_EVENTS) return false;
-
-    const kept = compact(events);
-    if (kept.length === events.length) return false;
-    const prefix = path.replace(/log\/.*$/, 'snapshot/');
-    const n = (snapshotSeq.get(prefix) ?? 0) + 1;
-    await storage.write(`${prefix}${deviceId}-${n}.json`, JSON.stringify(kept));
-    await storage.write(path, kept.map((e) => JSON.stringify(e)).join('\n'));
-    if (n > 1) await storage.remove(`${prefix}${deviceId}-${n - 1}.json`).catch(() => {});
-    snapshotSeq.set(prefix, n);
-    return true;
-  }
+  // No compaction yet. A version that wrote compacted snapshots was undone by
+  // the next upload (the store still held every event) and so ran again on
+  // every tick once a log was big enough. It comes back only together with a
+  // store that drops what it compacts. ARCHITECTURE.md §7.5.
 
   /**
    * How current is this device? FR-SYNC-2 — never present stale data
@@ -166,11 +153,7 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
 
   /** One cycle. The app drives this on an interval; tests drive it directly. */
   async function tick() {
-    const out = { ...(await pull()), ...(await push()) };
-    for (const path of new Set(store.events.filter((e) => e.dev === deviceId).map((e) => pathFor(e, deviceId)))) {
-      await maybeCompact(path);
-    }
-    return out;
+    return { ...(await pull()), ...(await push()) };
   }
 
   /**
@@ -181,5 +164,5 @@ export function createSync({ storage, store, deviceId, now = () => Date.now() })
     return currentShop(store.events).phase === 'open' ? 3000 : 15000;
   }
 
-  return { record, push, pull, tick, status, intervalMs, maybeCompact, pathFor };
+  return { record, push, pull, tick, status, intervalMs, pathFor };
 }

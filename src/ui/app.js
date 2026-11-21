@@ -7,6 +7,7 @@
 // property test is watching.
 
 import { createStore } from '../core/store.js';
+import { doubleTicked } from '../core/merge.js';
 import { currentShop, nextShopId, permissions, explainRefusal } from '../core/shop.js';
 import { cookHistory } from '../core/library.js';
 import { selections, carryOverTransitions } from '../core/carryover.js';
@@ -89,12 +90,13 @@ export async function createApp({ storage } = {}) {
   });
   await recipes.init();
 
-  const sync = createSync({ storage, store, deviceId: identity.id });
+  // Everything that reaches local state is saved on this device as it arrives,
+  // so a closed tab loses nothing and the next open is instant (§7.1).
+  const sync = createSync({
+    storage, store, deviceId: identity.id,
+    persist: (events) => { persisted.put(events).catch(() => {}); },
+  });
   const presence = createPresence({ storage, deviceId: identity.id, nickname: identity.nickname });
-
-  // Everything that reaches local state is persisted, so a closed tab loses
-  // nothing and the next open is instant (§7.1).
-  store.subscribe(() => persisted.put(store.events).catch(() => {}));
 
   let roster = [];
   let timer = null;
@@ -257,6 +259,24 @@ export async function createApp({ storage } = {}) {
       await presence.leave(id).catch(() => {});
       await sync.tick().catch(() => {});
       return ev;
+    },
+
+    /**
+     * Lines in this shop ticked independently on more than one phone — someone
+     * may have bought it twice. Informational, never a blocker. FR-SYNC-4.2.
+     * @returns {Map<ingredientId, string[]>} who ticked it, by name where known
+     */
+    boughtTwice() {
+      const { id } = currentShop(store.events);
+      const prefix = `line:${id}:`;
+      const names = new Map(roster.map((r) => [r.deviceId, r.nickname]));
+      names.set(identity.id, 'you');
+      const out = new Map();
+      for (const { key, devices } of doubleTicked(store.events)) {
+        if (!key.startsWith(prefix)) continue;
+        out.set(key.slice(prefix.length, -':done'.length), devices.map((d) => names.get(d) ?? 'another phone'));
+      }
+      return out;
     },
 
     /** What still is not done, at the point the household believes it is. FR-SYNC-4.3. */

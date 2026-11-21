@@ -4,5 +4,5 @@
 // Bump it in every change that ships, and keep package.json's "version" the
 // same (a test checks).
 
-export const VERSION = '0.7.3';
-export const RELEASED = '2026-09-26';
+export const VERSION = '0.7.4';
+export const RELEASED = '2026-11-21';

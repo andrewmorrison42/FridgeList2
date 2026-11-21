@@ -261,3 +261,7 @@ li.done .for { color: var(--done); }
 .hide-done { margin: 0; font-size: .85rem; color: var(--muted); flex: none; }
 .menu-print .menu-note { color: var(--muted); font-size: 10pt; }
 @media print { .hide-done { display: none !important; } }
+
+/* Ticked on more than one phone (FR-SYNC-4.2): a note, not an alarm. */
+.twice { font-size: .75rem; color: var(--warn); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; white-space: nowrap; }
+.twice-report { margin: 8px 0; }

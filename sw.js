@@ -54,8 +54,12 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(fresh)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        // Only a good copy is kept: a 404 mid-deploy must not replace the
+        // file the app needs in a dead spot.
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        }
         return res;
       })
       .catch(() => caches.match(e.request).then((r) => r ?? caches.match('./index.html'))),
